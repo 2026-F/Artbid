@@ -22,6 +22,12 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.kafka:spring-kafka'
 
+	// 미디어 업로드(S3)·동영상 트랜스코딩(MediaConvert)·라이브 스트리밍(IVS) 연동
+	implementation platform('software.amazon.awssdk:bom:2.28.16')
+	implementation 'software.amazon.awssdk:s3'
+	implementation 'software.amazon.awssdk:mediaconvert'
+	implementation 'software.amazon.awssdk:ivs'
+
 	runtimeOnly 'com.mysql:mysql-connector-j'
 
 	compileOnly 'org.projectlombok:lombok'
