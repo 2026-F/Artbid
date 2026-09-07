@@ -1,15 +1,14 @@
 version: '3.8'
 
 services:
-  mysql:
-    image: mysql:8.0
+  postgres:
+    image: postgres:16-alpine
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: artbid
-      MYSQL_USER: artbid
-      MYSQL_PASSWORD: artbid
+      POSTGRES_DB: artbid
+      POSTGRES_USER: artbid
+      POSTGRES_PASSWORD: artbid
     ports:
-      - "3306:3306"
+      - "5432:5432"
 
   redis:
     image: redis:7-alpine
@@ -47,12 +46,12 @@ services:
   # backend:
   #   build: ./backend
   #   depends_on:
-  #     - mysql
+  #     - postgres
   #     - redis
   #     - kafka
   #   ports:
   #     - "8080:8080"
   #   environment:
-  #     SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/artbid
+  #     SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/artbid
   #     SPRING_DATA_REDIS_HOST: redis
   #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092

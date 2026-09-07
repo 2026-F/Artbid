@@ -23,7 +23,7 @@ AWS IVS(RTMP 송출 → HLS 재생)를, 3D/AR 작품 뷰어는 glTF/GLB + `<mode
 
 ```
 artbid/
-├── docker-compose.yml   # MySQL, Redis, Kafka(+Zookeeper), MinIO 로컬 인프라
+├── docker-compose.yml   # PostgreSQL, Redis, Kafka(+Zookeeper), MinIO 로컬 인프라
 └── backend/             # Spring Boot (기능/도메인 기준 패키지 구조)
 ```
 
@@ -112,7 +112,7 @@ Conventional Commits 형식을 사용합니다: `type: 내용 (한글 가능)`
 ## 아직 안 채운 부분 (TODO로 표시해둠)
 
 - `infra/redis/BidLuaExecutor` — compare-and-set + 안티 스나이핑 연장 Lua 스크립트
-- `infra/kafka/BidEventConsumer` — 받은 이벤트를 MySQL에 영구 기록
+- `infra/kafka/BidEventConsumer` — 받은 이벤트를 PostgreSQL에 영구 기록
 - `infra/realtime` — 다중 인스턴스 확장 시 Redis Pub/Sub 중계 추가
 - `infra/storage/S3PresignedUrlProvider` — AWS SDK S3Presigner 연동
 - `infra/media/MediaConvertClient` — MediaConvert 트랜스코딩 job 요청
@@ -126,7 +126,7 @@ Conventional Commits 형식을 사용합니다: `type: 내용 (한글 가능)`
 
 1. 인프라 먼저 띄우기
    ```
-   docker-compose up -d mysql redis zookeeper kafka minio
+   docker-compose up -d postgres redis zookeeper kafka minio
    ```
 2. `backend/` 폴더를 IntelliJ로 열면 Gradle 프로젝트로 인식됩니다 (Gradle Wrapper는
    IntelliJ가 열 때 자동 생성해주거나, `gradle wrapper` 명령으로 직접 생성하면 됩니다).
