@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # --- P0 핵심 (기본으로 같이 뜸: docker compose up -d) ---
   postgres:
     image: postgres:16-alpine
     environment:
@@ -9,19 +10,35 @@ services:
       POSTGRES_PASSWORD: artbid
     ports:
       - "5432:5432"
+    volumes:
+      - artbid-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U artbid -d artbid"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
+  # --- 확장 단계 (필요할 때만: docker compose --profile expansion up -d) ---
+  # 2026-09-06 개정: Kafka는 P0에서 제외하고 확장 단계(Transactional Outbox 도입 시)로 미뤘습니다.
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
+    profiles: ["expansion"]
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
 
   kafka:
     image: confluentinc/cp-kafka:7.6.0
+    profiles: ["expansion"]
     depends_on:
       - zookeeper
     ports:
@@ -32,8 +49,10 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
+  # --- 미디어 트랙에서 필요할 때: docker compose --profile media up -d ---
   minio:
     image: minio/minio
+    profiles: ["media"]
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: artbid
@@ -48,10 +67,11 @@ services:
   #   depends_on:
   #     - postgres
   #     - redis
-  #     - kafka
   #   ports:
   #     - "8080:8080"
   #   environment:
   #     SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/artbid
   #     SPRING_DATA_REDIS_HOST: redis
-  #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+volumes:
+  artbid-postgres-data:
