@@ -60,6 +60,7 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
+
   backend:
     image: ghcr.io/2026-f/artbid-backend:latest
     depends_on:
