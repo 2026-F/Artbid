@@ -19,4 +19,11 @@ public class Bid {
 	private Long bidderId;
 	private Long price;
 	private LocalDateTime createdAt;
+
+	public Bid(Long auctionId, Long bidderId, Long price, LocalDateTime createdAt) {
+		this.auctionId = auctionId;
+		this.bidderId = bidderId;
+		this.price = price;
+		this.createdAt = createdAt;
+	}
 }
