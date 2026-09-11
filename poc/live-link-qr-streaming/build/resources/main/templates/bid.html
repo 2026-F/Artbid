@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="'입찰 페이지 - ' + ${title}">입찰 페이지</title>
+    <style>
+        body { font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; max-width: 640px; margin: 0 auto; padding: 16px; background: #111; color: #eee; }
+        .video-wrap { position: relative; width: 100%; padding-top: 56.25%; background: #000; }
+        .video-wrap iframe { position: absolute; top:0; left:0; width:100%; height:100%; border:0; }
+        .price-box { margin-top: 16px; padding: 20px; background: #1c1c1c; border-radius: 12px; text-align: center; }
+        .price { font-size: 2.4em; font-weight: 700; color: #ffd166; transition: color 0.2s; }
+        .price.flash { color: #06d6a0; }
+        .meta { color: #999; font-size: 0.9em; margin-top: 6px; }
+        .status { margin-top: 8px; font-size: 0.85em; }
+        .status.connected { color: #06d6a0; }
+        .status.disconnected { color: #ef476f; }
+        button { margin-top: 16px; width: 100%; padding: 14px; font-size: 1.05em; border: none; border-radius: 10px; background: #ffd166; font-weight: 700; cursor: pointer; }
+        button:active { opacity: 0.8; }
+        #log { margin-top: 16px; font-size: 0.8em; color: #777; max-height: 140px; overflow-y: auto; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+<h2 th:text="${title}">경매 물품</h2>
+<div class="meta" th:text="'itemId: ' + ${itemId}">itemId</div>
+
+<div class="video-wrap">
+    <iframe th:src="'https://www.youtube.com/embed/' + ${youtubeVideoId} + '?autoplay=1&mute=1'"
+            allow="autoplay; encrypted-media" allowfullscreen></iframe>
+</div>
+
+<div class="price-box">
+    <div class="meta">현재 호가</div>
+    <div class="price" id="currentPrice" th:text="${#numbers.formatInteger(initialPrice, 1, 'COMMA')} + '원'">0원</div>
+    <div class="meta" id="bidCount" th:text="'입찰 횟수: ' + ${initialBidCount}">입찰 횟수: 0</div>
+    <div class="status disconnected" id="wsStatus">WebSocket 연결 중...</div>
+</div>
+
+<button id="manualBidBtn">테스트용 입찰하기 (+5,000원)</button>
+
+<div id="log"></div>
+
+<script th:inline="javascript">
+    const itemId = /*[[${itemId}]]*/ 'item1';
+</script>
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7/bundles/stomp.umd.min.js"></script>
+<script>
+    const priceEl = document.getElementById('currentPrice');
+    const bidCountEl = document.getElementById('bidCount');
+    const statusEl = document.getElementById('wsStatus');
+    const logEl = document.getElementById('log');
+
+    function log(msg) {
+        const t = new Date().toLocaleTimeString();
+        logEl.textContent = `[${t}] ${msg}\n` + logEl.textContent;
+    }
+
+    function formatWon(n) {
+        return Number(n).toLocaleString('ko-KR') + '원';
+    }
+
+    const client = new StompJs.Client({
+        webSocketFactory: () => new SockJS('/ws-bid'),
+        reconnectDelay: 3000,
+        onConnect: () => {
+            statusEl.textContent = 'WebSocket 연결됨 (실시간 반영 중)';
+            statusEl.className = 'status connected';
+            log('WebSocket 연결됨, 구독 시작: /topic/bid/' + itemId);
+            client.subscribe('/topic/bid/' + itemId, (message) => {
+                const body = JSON.parse(message.body);
+                priceEl.textContent = formatWon(body.currentPrice);
+                priceEl.classList.add('flash');
+                setTimeout(() => priceEl.classList.remove('flash'), 300);
+                bidCountEl.textContent = '입찰 횟수: ' + body.bidCount;
+                log(`호가 갱신 (${body.source}): ` + formatWon(body.currentPrice));
+            });
+        },
+        onDisconnect: () => {
+            statusEl.textContent = 'WebSocket 연결 끊김';
+            statusEl.className = 'status disconnected';
+        },
+        onStompError: (frame) => {
+            log('STOMP 오류: ' + frame.headers['message']);
+        }
+    });
+    client.activate();
+
+    document.getElementById('manualBidBtn').addEventListener('click', () => {
+        fetch(`/api/bid/${itemId}/manual?increment=5000`, { method: 'POST' })
+            .then(r => r.json())
+            .then(data => log('수동 입찰 호출 완료: ' + formatWon(data.currentPrice)))
+            .catch(err => log('수동 입찰 실패: ' + err));
+    });
+</script>
+</body>
+</html>

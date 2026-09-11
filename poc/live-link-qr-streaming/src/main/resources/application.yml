@@ -1,0 +1,26 @@
+server:
+  port: 8080
+
+app:
+  # 모바일에서 QR을 스캔했을 때 접속할 주소.
+  # 비워두면 서버가 받은 요청(Host 헤더) 기준으로 자동 생성하지만,
+  # PC 브라우저(localhost)에서 QR을 찍어 확인하는 경우 폰이 localhost로 접속할 수 없으므로
+  # 반드시 이 PC의 같은 공유기(LAN) IP로 채워서 테스트하세요. 예: http://192.168.0.10:8080
+  public-base-url: ""
+
+  # 데모용 경매 아이템. 실제 검증할 때는 youtube-video-id를 실제 라이브(또는 테스트) 영상 ID로 교체하세요.
+  # (실 서비스는 AWS IVS의 HLS 재생 URL을 쓸 예정 - 이 PoC는 "고정 링크/QR 진입 + 실시간 호가 반영" 흐름만
+  #  검증하는 것이므로, 영상 소스는 유튜브로 대체했습니다.)
+  demo-items:
+    item1:
+      title: "테스트 경매 물품 1"
+      youtube-video-id: "dQw4w9WgXcQ"
+      initial-price: 10000
+    item2:
+      title: "테스트 경매 물품 2"
+      youtube-video-id: "dQw4w9WgXcQ"
+      initial-price: 50000
+
+logging:
+  level:
+    com.artbid: DEBUG
