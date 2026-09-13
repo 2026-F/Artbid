@@ -2,43 +2,71 @@
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title th:text="'입찰 페이지 - ' + ${title}">입찰 페이지</title>
     <style>
-        body { font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; max-width: 640px; margin: 0 auto; padding: 16px; background: #111; color: #eee; }
-        .video-wrap { position: relative; width: 100%; padding-top: 56.25%; background: #000; }
-        .video-wrap iframe { position: absolute; top:0; left:0; width:100%; height:100%; border:0; }
-        .price-box { margin-top: 16px; padding: 20px; background: #1c1c1c; border-radius: 12px; text-align: center; }
-        .price { font-size: 2.4em; font-weight: 700; color: #ffd166; transition: color 0.2s; }
-        .price.flash { color: #06d6a0; }
-        .meta { color: #999; font-size: 0.9em; margin-top: 6px; }
-        .status { margin-top: 8px; font-size: 0.85em; }
-        .status.connected { color: #06d6a0; }
-        .status.disconnected { color: #ef476f; }
-        button { margin-top: 16px; width: 100%; padding: 14px; font-size: 1.05em; border: none; border-radius: 10px; background: #ffd166; font-weight: 700; cursor: pointer; }
-        button:active { opacity: 0.8; }
-        #log { margin-top: 16px; font-size: 0.8em; color: #777; max-height: 140px; overflow-y: auto; white-space: pre-wrap; }
+        * { box-sizing: border-box; }
+        body { margin:0; font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background:#000; color:#fff; }
+        .app { max-width: 430px; margin: 0 auto; min-height: 100vh; background:#0b0b0f; display:flex; flex-direction:column; }
+        .topbar { display:flex; align-items:center; justify-content:space-between; padding: 14px 16px; }
+        .live-badge { display:inline-flex; align-items:center; gap:6px; background:#ef476f; color:#fff; font-weight:800; font-size:.72em; letter-spacing:.03em; padding:5px 10px; border-radius:20px; }
+        .live-dot { width:7px; height:7px; border-radius:50%; background:#fff; animation: blink 1.2s infinite; }
+        @keyframes blink { 0%,100% { opacity:1 } 50% { opacity:.25 } }
+        .conn-badge { font-size:.75em; padding:5px 10px; border-radius:20px; background:rgba(255,255,255,.08); }
+        .conn-badge.connected { color:#06d6a0; }
+        .conn-badge.disconnected { color:#ef476f; }
+
+        .video-wrap { position:relative; width:100%; aspect-ratio:16/9; background:#000; }
+        .video-wrap video { width:100%; height:100%; object-fit:cover; background:#000; }
+        .video-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#666; font-size:.85em; text-align:center; padding:0 20px; }
+        .unmute-btn { position:absolute; right:12px; bottom:12px; background:rgba(0,0,0,.65); color:#fff; border:1px solid rgba(255,255,255,.35); border-radius:20px; padding:8px 14px; font-size:.82em; cursor:pointer; }
+
+        .sheet { flex:1; padding:18px 16px 28px; }
+        .title { font-size:1.15em; font-weight:800; }
+        .item-id { color:#888; font-size:.8em; margin-top:2px; }
+
+        .price-card { margin-top:16px; padding:20px; background:#16161d; border-radius:16px; text-align:center; }
+        .price-label { color:#999; font-size:.85em; }
+        .price { font-size:2.3em; font-weight:800; color:#ffd166; margin-top:4px; transition: color .2s; }
+        .price.flash { color:#06d6a0; }
+        .bid-count { color:#999; font-size:.85em; margin-top:6px; }
+
+        .bid-btn { margin-top:18px; width:100%; padding:16px; font-size:1.05em; border:none; border-radius:14px; background:#ffd166; font-weight:800; cursor:pointer; }
+        .bid-btn:active { opacity:.8; transform: scale(.98); }
+
+        .log-toggle { margin-top:16px; text-align:center; font-size:.75em; color:#666; cursor:pointer; }
+        #log { margin-top:8px; font-size:.72em; color:#666; max-height:120px; overflow-y:auto; white-space:pre-wrap; display:none; }
     </style>
 </head>
 <body>
-<h2 th:text="${title}">경매 물품</h2>
-<div class="meta" th:text="'itemId: ' + ${itemId}">itemId</div>
+<div class="app">
+    <div class="topbar">
+        <span class="live-badge"><span class="live-dot"></span> LIVE</span>
+        <span class="conn-badge disconnected" id="wsStatus">연결 중…</span>
+    </div>
 
-<div class="video-wrap">
-    <iframe th:src="'https://www.youtube.com/embed/' + ${youtubeVideoId} + '?autoplay=1&mute=1'"
-            allow="autoplay; encrypted-media" allowfullscreen></iframe>
+    <div class="video-wrap">
+        <video id="remoteVideo" autoplay playsinline muted></video>
+        <div class="video-empty" id="videoEmpty">방송자 연결을 기다리는 중…</div>
+        <button id="unmuteBtn" class="unmute-btn" style="display:none;">🔇 탭해서 소리 켜기</button>
+    </div>
+
+    <div class="sheet">
+        <div class="title" th:text="${title}">경매 물품</div>
+        <div class="item-id" th:text="'itemId: ' + ${itemId}">itemId</div>
+
+        <div class="price-card">
+            <div class="price-label">현재 호가</div>
+            <div class="price" id="currentPrice" th:text="${#numbers.formatInteger(initialPrice, 1, 'COMMA')} + '원'">0원</div>
+            <div class="bid-count" id="bidCount" th:text="'입찰 횟수: ' + ${initialBidCount}">입찰 횟수: 0</div>
+        </div>
+
+        <button class="bid-btn" id="manualBidBtn">테스트용 입찰하기 (+5,000원)</button>
+
+        <div class="log-toggle" id="logToggle">디버그 로그 보기</div>
+        <div id="log"></div>
+    </div>
 </div>
-
-<div class="price-box">
-    <div class="meta">현재 호가</div>
-    <div class="price" id="currentPrice" th:text="${#numbers.formatInteger(initialPrice, 1, 'COMMA')} + '원'">0원</div>
-    <div class="meta" id="bidCount" th:text="'입찰 횟수: ' + ${initialBidCount}">입찰 횟수: 0</div>
-    <div class="status disconnected" id="wsStatus">WebSocket 연결 중...</div>
-</div>
-
-<button id="manualBidBtn">테스트용 입찰하기 (+5,000원)</button>
-
-<div id="log"></div>
 
 <script th:inline="javascript">
     const itemId = /*[[${itemId}]]*/ 'item1';
@@ -50,6 +78,14 @@
     const bidCountEl = document.getElementById('bidCount');
     const statusEl = document.getElementById('wsStatus');
     const logEl = document.getElementById('log');
+    const logToggle = document.getElementById('logToggle');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const videoEmpty = document.getElementById('videoEmpty');
+    const unmuteBtn = document.getElementById('unmuteBtn');
+
+    logToggle.addEventListener('click', () => {
+        logEl.style.display = logEl.style.display === 'block' ? 'none' : 'block';
+    });
 
     function log(msg) {
         const t = new Date().toLocaleTimeString();
@@ -60,13 +96,48 @@
         return Number(n).toLocaleString('ko-KR') + '원';
     }
 
+    // 이 탭을 식별하는 임시 ID (WebRTC 시그널링 라우팅용, 새로고침하면 새로 생성됨)
+    const viewerId = 'v-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+
+    function sendSignal(payload) {
+        client.publish({ destination: '/app/webrtc/' + itemId + '/signal', body: JSON.stringify(payload) });
+    }
+
+    // --- WebRTC: 방송자(노트북 카메라) 영상 수신 전용 (이 페이지는 getUserMedia를 쓰지 않음) ---
+    const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+    pc.ontrack = (event) => {
+        remoteVideo.srcObject = event.streams[0];
+        videoEmpty.style.display = 'none';
+        unmuteBtn.style.display = 'inline-block';
+        log('방송 영상 수신 시작');
+    };
+    pc.onicecandidate = (event) => {
+        if (event.candidate) {
+            sendSignal({
+                role: 'viewer', type: 'ice-candidate', viewerId,
+                candidate: event.candidate.candidate,
+                sdpMid: event.candidate.sdpMid,
+                sdpMLineIndex: event.candidate.sdpMLineIndex
+            });
+        }
+    };
+
+    unmuteBtn.addEventListener('click', () => {
+        remoteVideo.muted = false;
+        remoteVideo.play();
+        unmuteBtn.style.display = 'none';
+    });
+
     const client = new StompJs.Client({
         webSocketFactory: () => new SockJS('/ws-bid'),
         reconnectDelay: 3000,
         onConnect: () => {
-            statusEl.textContent = 'WebSocket 연결됨 (실시간 반영 중)';
-            statusEl.className = 'status connected';
-            log('WebSocket 연결됨, 구독 시작: /topic/bid/' + itemId);
+            statusEl.textContent = '연결됨';
+            statusEl.className = 'conn-badge connected';
+            log('WebSocket 연결됨');
+
             client.subscribe('/topic/bid/' + itemId, (message) => {
                 const body = JSON.parse(message.body);
                 priceEl.textContent = formatWon(body.currentPrice);
@@ -75,10 +146,30 @@
                 bidCountEl.textContent = '입찰 횟수: ' + body.bidCount;
                 log(`호가 갱신 (${body.source}): ` + formatWon(body.currentPrice));
             });
+
+            client.subscribe('/topic/webrtc/' + itemId + '/viewer/' + viewerId, async (message) => {
+                const msg = JSON.parse(message.body);
+                if (msg.type === 'offer') {
+                    await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    sendSignal({ role: 'viewer', type: 'answer', viewerId, sdp: answer.sdp });
+                    log('방송자로부터 offer 수신, answer 전송');
+                } else if (msg.type === 'ice-candidate') {
+                    try {
+                        await pc.addIceCandidate({
+                            candidate: msg.candidate, sdpMid: msg.sdpMid, sdpMLineIndex: msg.sdpMLineIndex
+                        });
+                    } catch (e) { log('ICE 후보 추가 실패: ' + e); }
+                }
+            });
+
+            // 방송자에게 "새 시청자 접속"을 알려서 offer를 만들어 보내게 한다.
+            sendSignal({ role: 'viewer', type: 'join', viewerId });
         },
         onDisconnect: () => {
-            statusEl.textContent = 'WebSocket 연결 끊김';
-            statusEl.className = 'status disconnected';
+            statusEl.textContent = '연결 끊김';
+            statusEl.className = 'conn-badge disconnected';
         },
         onStompError: (frame) => {
             log('STOMP 오류: ' + frame.headers['message']);

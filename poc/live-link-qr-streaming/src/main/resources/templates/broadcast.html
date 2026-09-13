@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="'방송 화면 - ' + ${title}">방송 화면</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin:0; font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background:#0b0b0f; color:#fff; }
+        .wrap { max-width: 720px; margin: 0 auto; padding: 20px 18px 32px; }
+        h2 { margin: 0 0 4px; }
+        .meta { color:#999; font-size:.85em; margin-bottom:18px; }
+        .video-wrap { position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:14px; overflow:hidden; }
+        .video-wrap video { width:100%; height:100%; object-fit:cover; transform: scaleX(-1); }
+        .start-btn { margin-top:16px; width:100%; padding:16px; font-size:1.05em; border:none; border-radius:14px; background:#06d6a0; color:#04231b; font-weight:800; cursor:pointer; }
+        .start-btn:disabled { opacity:.6; cursor:default; }
+        .share-card { margin-top:22px; padding:18px; background:#16161d; border-radius:16px; display:flex; gap:16px; align-items:center; }
+        .share-card img { width:120px; height:120px; border-radius:8px; background:#fff; }
+        .share-card a { color:#7db8ff; word-break: break-all; }
+        .viewer-count { margin-top:14px; font-size:.9em; color:#06d6a0; font-weight:700; }
+        .hint { margin-top:10px; font-size:.78em; color:#777; line-height:1.5; }
+        #log { margin-top:16px; font-size:.75em; color:#666; max-height:140px; overflow-y:auto; white-space:pre-wrap; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <h2 th:text="${title}">경매 물품</h2>
+    <div class="meta" th:text="'방송자 화면 · itemId: ' + ${itemId}">방송자 화면</div>
+
+    <div class="video-wrap">
+        <video id="localVideo" autoplay muted playsinline></video>
+    </div>
+    <button id="startBtn" class="start-btn">🎥 카메라 켜고 방송 시작</button>
+    <div class="viewer-count" id="viewerCount">연결된 시청자: 0명</div>
+
+    <div class="share-card">
+        <img th:src="'/qrcode/' + ${itemId}" alt="QR"/>
+        <div>
+            <div style="margin-bottom:6px; color:#ccc;">시청자에게 이 QR이나 링크를 공유하세요</div>
+            <a th:href="'/bid/' + ${itemId}" th:text="'/bid/' + ${itemId}">시청 링크</a>
+        </div>
+    </div>
+
+    <div class="hint">카메라 권한 창이 뜨면 허용해주세요. 이 화면은 반드시 이 서버가 실행 중인 노트북에서, <code>localhost</code> 주소로 열어야 카메라가 켜집니다 (보안 정책상 IP 주소로 열면 카메라 권한이 막혀요).</div>
+
+    <div id="log"></div>
+</div>
+
+<script th:inline="javascript">
+    const itemId = /*[[${itemId}]]*/ 'item1';
+</script>
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7/bundles/stomp.umd.min.js"></script>
+<script>
+    const localVideo = document.getElementById('localVideo');
+    const startBtn = document.getElementById('startBtn');
+    const viewerCountEl = document.getElementById('viewerCount');
+    const logEl = document.getElementById('log');
+
+    function log(msg) {
+        const t = new Date().toLocaleTimeString();
+        logEl.textContent = `[${t}] ${msg}\n` + logEl.textContent;
+    }
+
+    let localStream = null;
+    const peers = {}; // viewerId -> RTCPeerConnection
+
+    function sendSignal(payload) {
+        client.publish({ destination: '/app/webrtc/' + itemId + '/signal', body: JSON.stringify(payload) });
+    }
+
+    function updateViewerCount() {
+        viewerCountEl.textContent = '연결된 시청자: ' + Object.keys(peers).length + '명';
+    }
+
+    async function handleJoin(viewerId) {
+        if (peers[viewerId]) return; // 이미 연결(재요청)인 경우 무시
+        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        peers[viewerId] = pc;
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                sendSignal({
+                    role: 'broadcaster', type: 'ice-candidate', viewerId,
+                    candidate: event.candidate.candidate,
+                    sdpMid: event.candidate.sdpMid,
+                    sdpMLineIndex: event.candidate.sdpMLineIndex
+                });
+            }
+        };
+        pc.onconnectionstatechange = () => {
+            log(`시청자(${viewerId}) 연결 상태: ${pc.connectionState}`);
+            if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+                delete peers[viewerId];
+                updateViewerCount();
+            }
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal({ role: 'broadcaster', type: 'offer', viewerId, sdp: offer.sdp });
+        log('새 시청자 접속: ' + viewerId + ' → offer 전송');
+        updateViewerCount();
+    }
+
+    const client = new StompJs.Client({
+        webSocketFactory: () => new SockJS('/ws-bid'),
+        reconnectDelay: 3000,
+        onConnect: () => {
+            log('시그널링 서버 연결됨');
+            client.subscribe('/topic/webrtc/' + itemId + '/broadcaster', async (message) => {
+                const msg = JSON.parse(message.body);
+                const pc = peers[msg.viewerId];
+                if (msg.type === 'join') {
+                    await handleJoin(msg.viewerId);
+                } else if (msg.type === 'answer' && pc) {
+                    await pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+                } else if (msg.type === 'ice-candidate' && pc) {
+                    try {
+                        await pc.addIceCandidate({
+                            candidate: msg.candidate, sdpMid: msg.sdpMid, sdpMLineIndex: msg.sdpMLineIndex
+                        });
+                    } catch (e) { log('ICE 후보 추가 실패: ' + e); }
+                }
+            });
+        },
+        onStompError: (frame) => log('STOMP 오류: ' + frame.headers['message'])
+    });
+
+    startBtn.addEventListener('click', async () => {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            localVideo.srcObject = localStream;
+            client.activate();
+            startBtn.disabled = true;
+            startBtn.textContent = '🔴 방송 중 (시청자 접속 대기)';
+            log('카메라 켜짐, 시그널링 서버 연결 시도');
+        } catch (e) {
+            log('카메라 접근 실패: ' + e);
+            alert('카메라 권한을 허용해야 방송을 시작할 수 있어요. (localhost 주소로 열었는지도 확인해주세요)');
+        }
+    });
+</script>
+</body>
+</html>
