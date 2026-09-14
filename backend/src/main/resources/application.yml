@@ -31,7 +31,7 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 app:
+  cors:
+    allowed-origins: http://localhost:3000
   aws:
-    # AWS IVS(라이브 스트리밍) 채널 생성에 사용하는 리전. 자격 증명은 코드/설정 파일에 넣지 않고
-    # AWS SDK 기본 체인(환경 변수 AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY, ~/.aws/credentials, IAM 역할 등)을 사용한다.
     region: ap-northeast-2

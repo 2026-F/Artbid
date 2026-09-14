@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.ivs.model.ChannelType;
 import software.amazon.awssdk.services.ivs.model.CreateChannelRequest;
 import software.amazon.awssdk.services.ivs.model.CreateChannelResponse;
 import software.amazon.awssdk.services.ivs.model.DeleteChannelRequest;
+import software.amazon.awssdk.services.ivs.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.ivs.model.StopStreamRequest;
 import software.amazon.awssdk.services.ivs.model.StreamKey;
 
@@ -60,12 +61,19 @@ public class IvsChannelClient {
         }
     }
 
-    /** 경매가 완전히 종료되어 다시 쓸 일이 없는 채널을 삭제해 리소스를 정리한다. */
-    public void deleteChannel(String channelArn) {
-        ivsClient.deleteChannel(DeleteChannelRequest.builder()
-                .arn(channelArn)
-                .build());
-        log.info("[IVS] 채널 삭제 완료: channelArn={}", channelArn);
+    /**
+     * 경매가 완전히 종료되어 다시 쓸 일이 없는 채널을 삭제해 리소스를 정리한다.
+     * 이미 삭제된 채널(예: 종료 API 중복 호출)이면 에러 없이 조용히 무시한다.
+     */
+    public void deleteChannelIfExists(String channelArn) {
+        try {
+            ivsClient.deleteChannel(DeleteChannelRequest.builder()
+                    .arn(channelArn)
+                    .build());
+            log.info("[IVS] 채널 삭제 완료: channelArn={}", channelArn);
+        } catch (ResourceNotFoundException e) {
+            log.debug("[IVS] 이미 삭제된 채널(정상): channelArn={}", channelArn);
+        }
     }
 
     /**

@@ -29,6 +29,18 @@ public class Livestream {
 	@Enumerated(EnumType.STRING)
 	private LivestreamStatus status;
 
+	/**
+	 * 새 IVS 채널 정보로 (재)활성화한다. 처음 시작할 때뿐 아니라, 한 번 끝난(ENDED) 경매를
+	 * 다시 시작할 때도 같은 행을 재사용해서 새 채널 정보로 덮어쓴다.
+	 */
+	public void activate(String ivsChannelArn, String streamKey, String ingestEndpoint, String playbackUrl) {
+		this.ivsChannelArn = ivsChannelArn;
+		this.streamKey = streamKey;
+		this.ingestEndpoint = ingestEndpoint;
+		this.playbackUrl = playbackUrl;
+		this.status = LivestreamStatus.LIVE;
+	}
+
 	/** AWS IVS 쪽 스트림을 강제 종료한 뒤 상태를 반영한다. */
 	public void markEnded() {
 		this.status = LivestreamStatus.ENDED;
