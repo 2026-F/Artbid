@@ -24,4 +24,17 @@ public class ArtworkMedia {
 	private String sourceUrl;
 
 	private Integer sortOrder;
+
+	public ArtworkMedia(Long artworkId, MediaType mediaType, String url, String sourceUrl, Integer sortOrder) {
+		this.artworkId = artworkId;
+		this.mediaType = mediaType;
+		this.url = url;
+		this.sourceUrl = sourceUrl;
+		this.sortOrder = sortOrder;
+	}
+
+	// MediaConvert 트랜스코딩 완료 콜백에서 url을 채우기 위한 업데이트용 메서드 (추후 사용)
+	public void updateUrl(String url) {
+		this.url = url;
+	}
 }
