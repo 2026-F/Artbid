@@ -3,6 +3,7 @@ package com.artbid.payment.domain;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.springframework.scheduling.annotation.Async;
 
 import java.time.LocalDateTime;
 
@@ -20,3 +21,4 @@ public class Payment {
 	private String method;
 	private LocalDateTime paidAt;
 }
+
