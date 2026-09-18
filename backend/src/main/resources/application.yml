@@ -30,6 +30,12 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
+app:
+  cors:
+    allowed-origins: http://localhost:3000
+  aws:
+    region: ap-northeast-2
+
 # 트랙 3 (미디어·3D·AR) — 사진/동영상/3D 모델(glTF·GLB) 업로드
 # 로컬 개발 기본값: docker-compose의 MinIO(--profile media)를 가리킨다.
 #   docker compose --profile media up -d minio
