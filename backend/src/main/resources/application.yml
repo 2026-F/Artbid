@@ -1,6 +1,3 @@
-server:
-  port: 8080
-
 spring:
   application:
     name: artbid-backend
@@ -10,6 +7,8 @@ spring:
     username: artbid
     password: artbid
     driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 3000   # 기본 30초 -> 3초로 단축
 
   jpa:
     hibernate:
@@ -36,10 +35,6 @@ app:
   aws:
     region: ap-northeast-2
 
-# 트랙 3 (미디어·3D·AR) — 사진/동영상/3D 모델(glTF·GLB) 업로드
-# 로컬 개발 기본값: docker-compose의 MinIO(--profile media)를 가리킨다.
-#   docker compose --profile media up -d minio
-# 로 MinIO를 띄운 뒤 실행하면 앱 기동 시 버킷이 자동 생성되고 공개 읽기 정책이 걸린다.
 media:
   storage:
     endpoint: http://localhost:9000
@@ -52,11 +47,4 @@ media:
     create-bucket-if-missing: true
 
   mediaconvert:
-    # AWS 계정/역할/큐/Job Template이 준비되기 전까지는 false로 두면 실제 API 호출 없이
-    # 로그만 남긴다 (동영상 업로드 자체는 이 값과 무관하게 정상 동작).
     enabled: false
-    # AWS 계정 준비되면 채우기:
-    # endpoint: https://xxxxxxxx.mediaconvert.ap-northeast-2.amazonaws.com
-    # role-arn: arn:aws:iam::<account-id>:role/ArtbidMediaConvertRole
-    # queue-arn: arn:aws:mediaconvert:ap-northeast-2:<account-id>:queues/Default
-    # job-template-name: artbid-video-transcode
