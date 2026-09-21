@@ -4,15 +4,23 @@ import com.artbid.auction.domain.Auction;
 import com.artbid.auction.domain.Bid;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.auction.repository.BidRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.artbid.common.exception.BidTemporarilyUnavailableException;
+import org.springframework.dao.PessimisticLockingFailureException;
 
 import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
 public class BidService {
+
+	@PersistenceContext
+	private EntityManager entityManager;
 
 	private final AuctionRepository auctionRepository;
 	private final BidRepository bidRepository;
@@ -27,10 +35,20 @@ public class BidService {
 	 * 이 블록을 통과하므로(뒤에 온 요청은 락이 풀릴 때까지 대기),
 	 * 낮은 가격이 먼저 커밋된 높은 가격을 덮어쓰는 race condition이 구조적으로 발생하지 않는다.
 	 */
+
+
 	@Transactional
 	public BidResult submitBid(Long auctionId, Long bidderId, Long price) {
-		Auction auction = auctionRepository.findByIdForUpdate(auctionId)
-				.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + auctionId));
+		Auction auction;
+		entityManager.createNativeQuery("SET LOCAL lock_timeout = '3000ms'").executeUpdate();
+
+		try{
+			auction = auctionRepository.findByIdForUpdate(auctionId)
+					.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + auctionId));
+		}
+		catch(PessimisticLockingFailureException e){
+			throw new BidTemporarilyUnavailableException();
+		}
 
 		LocalDateTime now = LocalDateTime.now();
 		boolean extended = auction.applyBid(price, now); // 검증 실패 시 InvalidBidException
