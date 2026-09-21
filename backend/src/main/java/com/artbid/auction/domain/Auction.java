@@ -27,7 +27,7 @@ public class Auction {
 	private Long id;
 
 	private Long artworkId;
-	private Long startPrice;   // 시작가 (경매 생성 시 고정)
+	private Long startPrice;   // 시작가
 	private Long currentPrice; // 현재가 (입찰마다 갱신되는 값 — 이번 PoC의 핵심 필드)
 	private Long minBidUnit;   // 최소 입찰 단위 (예: 1000원 단위로만 올릴 수 있음)
 
