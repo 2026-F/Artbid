@@ -3,6 +3,9 @@
 작성일: 2026-09-24 / 담당: 이혜령
 회의 검토용 초안이며 팀 확정 전임.
 
+이 문서는 최초 Entity 구현 시점의 검증 범위를 기록함.
+이후 Settlement/PaymentService 연결 내용과 현재 남은 작업은 [payment-flow.md](payment-flow.md)에 정리함.
+
 ## 이번 변경의 목적
 
 기존 PaymentService.pay()는 비어 있음. API 연결 전에 개별 결제 시도의
