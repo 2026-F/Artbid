@@ -55,11 +55,12 @@ public class Auction {
 				.previewStart(previewStart)
 				.previewEnd(previewEnd)
 				.auctionEndAt(auctionEndAt)
+				.currentPrice(startPrice)
 				.status(startStatus(previewStart, now))
 				.build();
 	}
 
-public static void validateCreate(Long artworkId,
+private static void validateCreate(Long artworkId,
 								  Long startPrice,
 								  Long minBidUnit,
 								  LocalDateTime previewStart,
@@ -86,7 +87,7 @@ public static void validateCreate(Long artworkId,
 		}
     }
 
-	public static AuctionStatus startStatus(LocalDateTime previewStart, LocalDateTime now){
+	private static AuctionStatus startStatus(LocalDateTime previewStart, LocalDateTime now){
 		return now.isBefore(previewStart) ? AuctionStatus.SCHEDULED : AuctionStatus.PREVIEW;
 	}
 

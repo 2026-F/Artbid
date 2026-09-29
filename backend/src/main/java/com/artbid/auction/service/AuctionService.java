@@ -26,8 +26,8 @@ public class AuctionService {
 								 LocalDateTime previewStart,
 								 LocalDateTime previewEnd,
 								 LocalDateTime auctionEndAt) {
-		auctionRepository.findById(artworkId)
-				.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다 :" + artworkId));
+		artworkRepository.findById(artworkId)
+				.orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다 :" + artworkId));
 
 		Auction auction = Auction.create(artworkId, startPrice, minBidUnit, previewStart, previewEnd, auctionEndAt, LocalDateTime.now());
 
