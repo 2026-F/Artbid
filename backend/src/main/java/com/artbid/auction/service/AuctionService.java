@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 public class AuctionService {
 
 	private final AuctionRepository auctionRepository;
+	private final ArtworkRepository artworkRepository;
 
 	public Auction getAuction(Long id) {
 		return auctionRepository.findById(id)

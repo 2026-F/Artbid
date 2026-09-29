@@ -5,6 +5,8 @@ import com.artbid.auction.service.AuctionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+
 @RestController
 @RequestMapping("/api/auctions")
 @RequiredArgsConstructor
@@ -18,10 +20,20 @@ public class AuctionController {
 	}
 
 	@PostMapping
-	public Auction creatAuction(@RequestBody AuctionCreateRequest request){
+	public Auction createAuction(@RequestBody AuctionCreateRequest request) {
 		return auctionService.createAuction(
-				request.artwordId,
+				request.artworkId(),
+				request.startPrice(),
+				request.minBidUnit(),
+				request.previewStart(),
+				request.previewEnd(),
+				request.auctionEndAt()
+		);
+	}
 
-		)
+	// BidController의 BidRequest처럼 record로 요청 body를 받는 DTO
+	public record AuctionCreateRequest(Long artworkId, Long startPrice, Long minBidUnit,
+                                       LocalDateTime previewStart, LocalDateTime previewEnd,
+                                       LocalDateTime auctionEndAt) {
 	}
 }
