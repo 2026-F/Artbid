@@ -1,10 +1,12 @@
 package com.artbid.auction.service;
 
 import com.artbid.auction.domain.Auction;
+import com.artbid.auction.dto.AuctionDetailResponse;
 import com.artbid.auction.repository.AuctionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import com.artbid.artwork.repository.ArtworkRepository;
+import com.artbid.artwork.domain.Artwork;
 
 import java.time.LocalDateTime;
 
@@ -35,6 +37,26 @@ public class AuctionService {
 		return auctionRepository.save(auction);
 	}
 
+	public AuctionDetailResponse getAuctionDetail(Long auctionId){
+		Auction auction = auctionRepository.findById(auctionId)
+				.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + auctionId));
 
+		Artwork artwork = artworkRepository.findById(auction.getArtworkId())
+				.orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다 :" + auction.getArtworkId()));
+
+
+		return new AuctionDetailResponse(
+				auction.getId(),
+				auction.getCurrentPrice(),
+				auction.getStartPrice(),
+				auction.getMinBidUnit(),
+				auction.getPreviewStart(),
+				auction.getPreviewEnd(),
+				auction.getAuctionEndAt(),
+				auction.getStatus(),
+				artwork.getTitle(),
+				artwork.getImageUrl()
+		);
+	}
 
 }

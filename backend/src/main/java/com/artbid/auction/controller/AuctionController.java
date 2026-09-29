@@ -1,6 +1,7 @@
 package com.artbid.auction.controller;
 
 import com.artbid.auction.domain.Auction;
+import com.artbid.auction.dto.AuctionDetailResponse;
 import com.artbid.auction.service.AuctionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -35,5 +36,10 @@ public class AuctionController {
 	public record AuctionCreateRequest(Long artworkId, Long startPrice, Long minBidUnit,
                                        LocalDateTime previewStart, LocalDateTime previewEnd,
                                        LocalDateTime auctionEndAt) {
+	}
+
+	@GetMapping("/{id}")
+	public AuctionDetailResponse getAuctionDetail(@PathVariable Long id){
+		return auctionService.getAuctionDetail(id);
 	}
 }
