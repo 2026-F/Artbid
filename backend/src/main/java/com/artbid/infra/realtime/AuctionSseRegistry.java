@@ -14,12 +14,13 @@ public class AuctionSseRegistry {
 	private final Map<Long, SseEmitter> emitters = new ConcurrentHashMap<>();
 
 	public SseEmitter subscribe(Long auctionId) {
-		SseEmitter emitter = new SseEmitter(0L);
-		emitters.put(auctionId, emitter);
-		emitter.onCompletion(() -> emitters.remove(auctionId));
+		SseEmitter emitter = new SseEmitter(0L); // 타임아웃 0 = 무제한으로 열어둠
+		emitters.put(auctionId, emitter); // auctionId랑 이 연결을 짝지어 저장
+		emitter.onCompletion(() -> emitters.remove(auctionId)); // 연결 끊기면 맵에서 제거
 		emitter.onTimeout(() -> emitters.remove(auctionId));
 		return emitter;
 	}
+
 
 	public void broadcast(Long auctionId, Object payload) {
 		SseEmitter emitter = emitters.get(auctionId);
@@ -27,7 +28,7 @@ public class AuctionSseRegistry {
 			return;
 		}
 		try {
-			emitter.send(payload);
+			emitter.send(payload); // 입찰 후 현재가, 마감 시각, 마감 연장 여부를 담은 레코드를 그대로 보냄 payload
 		} catch (Exception e) {
 			emitters.remove(auctionId);
 		}
