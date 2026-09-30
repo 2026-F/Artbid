@@ -25,4 +25,18 @@ public enum MediaType {
 		throw new IllegalArgumentException("지원하지 않는 파일 형식입니다 (contentType=%s, fileName=%s)"
 				.formatted(contentType, fileName));
 	}
+
+	/**
+	 * /presigned-url 응답으로 내려준 mediaType 문자열(PHOTO / VIDEO / MODEL_3D)을 enum으로 변환한다.
+	 */
+	public static MediaType fromName(String value) {
+		if (value == null || value.isBlank()) {
+			throw new IllegalArgumentException("mediaType이 비어 있습니다");
+		}
+		try {
+			return MediaType.valueOf(value.trim().toUpperCase());
+		} catch (IllegalArgumentException e) {
+			throw new IllegalArgumentException("지원하지 않는 mediaType입니다: " + value);
+		}
+	}
 }
