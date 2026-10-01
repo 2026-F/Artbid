@@ -48,3 +48,10 @@ media:
 
   mediaconvert:
     enabled: false
+    # enabled=true로 켤 때 채울 값 (AWS 콘솔에서 확인)
+    # endpoint: https://xxxx.mediaconvert.ap-northeast-2.amazonaws.com
+    # role-arn: arn:aws:iam::123456789012:role/MediaConvertRole
+    # job-template-name: artbid-hls
+    # output-key-prefix: transcoded/   # Job Template Destination = s3://{bucket}/transcoded/
+    # output-suffix: .m3u8
+    # poll-interval-ms: 60000
