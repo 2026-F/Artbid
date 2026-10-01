@@ -4,12 +4,15 @@ import com.artbid.auction.domain.Auction;
 import com.artbid.auction.domain.Bid;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.auction.repository.BidRepository;
+import com.artbid.infra.realtime.AuctionSseRegistry;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.artbid.common.exception.BidTemporarilyUnavailableException;
 import org.springframework.dao.PessimisticLockingFailureException;
 
@@ -24,7 +27,9 @@ public class BidService {
 
 	private final AuctionRepository auctionRepository;
 	private final BidRepository bidRepository;
-	// TODO(확장 단계): 여기에 RedisTemplate 주입해서 트랜잭션 커밋 후 캐시 갱신 + Pub/Sub 발행 추가
+	private final AuctionSseRegistry sseRegistry;
+	// TODO(확장 단계): 인스턴스가 여러 대로 늘어나면 AuctionSseRegistry(인메모리)만으로는 부족 —
+	// Redis Pub/Sub으로 교체해서 인스턴스 간 이벤트를 중계해야 함
 
 	/**
 	 * 입찰 제출 (PoC 1-1: 동시 입찰 정확성 검증 대상 로직)
@@ -55,7 +60,21 @@ public class BidService {
 
 		bidRepository.save(new Bid(auctionId, bidderId, price, now));
 
-		return new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), extended);
+		BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), extended);
+
+		// 트랜잭션이 실제로 커밋된 뒤에만 구독자에게 알림 (롤백되면 알림도 안 나가야 하므로)
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					sseRegistry.broadcast(auctionId, result);
+				}
+			});
+		} else {
+			sseRegistry.broadcast(auctionId, result);
+		}
+
+		return result;
 	}
 
 	public record BidResult(Long currentPrice, LocalDateTime auctionEndAt, boolean extended) {
