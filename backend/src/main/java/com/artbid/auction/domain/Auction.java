@@ -106,6 +106,10 @@ private static void validateCreate(Long artworkId,
 		return extended;
 	}
 
+	public void aftercancelPrice(Long price){
+		this.currentPrice = price;
+	}
+
 	private void validateBid(Long price, LocalDateTime now) {
 		if (status != AuctionStatus.ONGOING && status != AuctionStatus.EXTENDED) {
 			throw new InvalidBidException("진행 중인 경매가 아닙니다. 현재 상태: " + status);
