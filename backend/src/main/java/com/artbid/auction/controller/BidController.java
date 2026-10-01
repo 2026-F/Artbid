@@ -19,7 +19,7 @@ public class BidController {
 	}
 
 	@DeleteMapping("/{auctionId}/bids")
-	public BidService.BidResult cancelBid(@PathVariable Long auctionId, @RequestBody BidRequest request){
+	public BidService.BidResult cancelBid(@PathVariable Long auctionId, @RequestBody BidCancelRequest request){
 		return bidService.cancelBid(auctionId, request.bidderId());
 	}
 
