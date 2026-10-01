@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import static BidServiceTest.AUCTION_ID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -31,9 +32,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import static org.mockito.Mockito.lenient;
 
-@ExtendWith(MockitoExtension.class)
-class BidServiceTest {
+	@ExtendWith(MockitoExtension.class)
+	class BidServiceTest{
 
 	@Mock
 	private AuctionRepository auctionRepository;
@@ -56,8 +58,9 @@ class BidServiceTest {
 
 		// lockAuctionOrThrow()가 cancelBid/submitBid 진입 시 항상 먼저 실행하는
 		// "SET LOCAL lock_timeout" 네이티브 쿼리 체인을 목으로 대체한다.
+		// getBids()는 이 경로를 안 타므로 lenient()로 strict-stub 검사 예외 처리.
 		Query mockQuery = mock(Query.class);
-		when(entityManager.createNativeQuery(anyString())).thenReturn(mockQuery);
+		lenient().when(entityManager.createNativeQuery(anyString())).thenReturn(mockQuery);
 	}
 
 	private Auction auctionWithCurrentPrice(Long currentPrice) {

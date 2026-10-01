@@ -26,6 +26,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.springframework.http.converter.StringHttpMessageConverter;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import java.nio.charset.StandardCharsets;
+
 /**
  * BidController 단위 테스트.
  * 실제 DB/Spring 컨텍스트 없이 MockMvc standalone 모드로 띄우고,
@@ -46,6 +50,10 @@ class BidControllerTest {
 		BidController controller = new BidController(bidService);
 		mockMvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
+				.setMessageConverters(
+						new StringHttpMessageConverter(StandardCharsets.UTF_8),
+						new MappingJackson2HttpMessageConverter(objectMapper)
+				)
 				.build();
 	}
 
