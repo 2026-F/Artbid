@@ -7,7 +7,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
 import java.time.Duration;
 import java.time.LocalDateTime;
 
@@ -19,8 +18,8 @@ import java.time.LocalDateTime;
 public class Auction {
 
 	// 마감 30초 이내 입찰이면 마감을 30초 연장한다 (안티 스나이핑)
-	private static final long ANTI_SNIPING_WINDOW_SECONDS = 30;
-	private static final long ANTI_SNIPING_EXTEND_SECONDS = 30;
+	private static final long ADD_WINDOW_SECONDS = 30;
+	private static final long ADD_EXTEND_SECONDS = 30;
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -38,13 +37,60 @@ public class Auction {
 	@Enumerated(EnumType.STRING)
 	private AuctionStatus status;
 
-	/**
-	 * 입찰을 검증하고 반영한다.
-	 * 반드시 이 경매 행이 SELECT ... FOR UPDATE로 잠긴 트랜잭션 안에서 호출되어야 한다.
-	 * (BidService.submitBid 참고)
-	 *
-	 * @return 마감 시각이 연장되었으면 true
-	 */
+	public static Auction create(
+		Long artworkId,
+		Long startPrice,
+		Long minBidUnit,
+		LocalDateTime previewStart,
+		LocalDateTime previewEnd,
+		LocalDateTime auctionEndAt,
+		LocalDateTime now){
+
+		validateCreate(artworkId, startPrice, minBidUnit, previewStart, previewEnd, auctionEndAt);
+
+		return Auction.builder()
+				.artworkId(artworkId)
+				.startPrice(startPrice)
+				.minBidUnit(minBidUnit)
+				.previewStart(previewStart)
+				.previewEnd(previewEnd)
+				.auctionEndAt(auctionEndAt)
+				.currentPrice(startPrice)
+				.status(startStatus(previewStart, now))
+				.build();
+	}
+
+private static void validateCreate(Long artworkId,
+								  Long startPrice,
+								  Long minBidUnit,
+								  LocalDateTime previewStart,
+								  LocalDateTime previewEnd,
+								  LocalDateTime auctionEndAt){
+		if(artworkId == null){
+			throw new IllegalArgumentException("artworkId는 필수입니다.");
+		}
+		if (startPrice == null || startPrice <= 0) {
+			throw new IllegalArgumentException("시작가는 0보다 커야 합니다.");
+		}
+		if (minBidUnit == null || minBidUnit <= 0) {
+			throw new IllegalArgumentException("최소 입찰 단위는 0보다 커야 합니다.");
+		}
+		if (previewStart == null || previewEnd == null || auctionEndAt == null) {
+			throw new IllegalArgumentException("프리뷰/마감 시각은 모두 필수입니다.");
+		}
+		// 프리뷰 시작 < 프리뷰 종료(=경매 시작) <= 경매 마감 순서를 강제한다.
+		if (!previewStart.isBefore(previewEnd)) {
+			throw new IllegalArgumentException("프리뷰 시작 시각은 프리뷰 종료 시각보다 빨라야 합니다.");
+		}
+		if (auctionEndAt.isBefore(previewEnd)) {
+			throw new IllegalArgumentException("경매 마감 시각은 프리뷰 종료 시각보다 빠를 수 없습니다.");
+		}
+    }
+
+	private static AuctionStatus startStatus(LocalDateTime previewStart, LocalDateTime now){
+		return now.isBefore(previewStart) ? AuctionStatus.SCHEDULED : AuctionStatus.PREVIEW;
+	}
+
 	public boolean applyBid(Long price, LocalDateTime now) {
 		validateBid(price, now);
 
@@ -52,12 +98,16 @@ public class Auction {
 
 		boolean extended = false;
 		long secondsUntilEnd = Duration.between(now, this.auctionEndAt).getSeconds();
-		if (secondsUntilEnd <= ANTI_SNIPING_WINDOW_SECONDS) {
-			this.auctionEndAt = this.auctionEndAt.plusSeconds(ANTI_SNIPING_EXTEND_SECONDS);
+		if (secondsUntilEnd <= ADD_WINDOW_SECONDS) {
+			this.auctionEndAt = this.auctionEndAt.plusSeconds(ADD_EXTEND_SECONDS);
 			this.status = AuctionStatus.EXTENDED;
 			extended = true;
 		}
 		return extended;
+	}
+
+	public void aftercancelPrice(Long price){
+		this.currentPrice = price;
 	}
 
 	private void validateBid(Long price, LocalDateTime now) {
