@@ -20,10 +20,19 @@ public class Bid {
 	private Long price;
 	private LocalDateTime createdAt;
 
+	public boolean canceled;
+	public LocalDateTime cancelAt;
+
 	public Bid(Long auctionId, Long bidderId, Long price, LocalDateTime createdAt) {
 		this.auctionId = auctionId;
 		this.bidderId = bidderId;
 		this.price = price;
 		this.createdAt = createdAt;
+		this.canceled = false;
+	}
+
+	public void cancel(LocalDateTime now) {
+		this.canceled = true;
+		this.cancelAt = now;
 	}
 }
