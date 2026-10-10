@@ -88,7 +88,7 @@ class ArtworkControllerTest {
 	@Test
 	void 필터를_검색_조건과_정렬로_변환해_조회한다() throws Exception {
 		ArtworkSummaryResponse item = new ArtworkSummaryResponse(1L, "무제", 2L, "김작가", ArtworkCategory.PAINTING,
-				null, 1_000_000L, null, ArtworkStatus.PREVIEW);
+				null, 1_000_000L, null, ArtworkStatus.PREVIEW, 3);
 		when(service.getArtworks(any(), any())).thenReturn(new ArtworkPageResponse(List.of(item), 0, 20, 1, 1));
 
 		mvc.perform(get("/api/artworks").param("keyword", "김").param("category", "PAINTING")
