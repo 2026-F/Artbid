@@ -3,6 +3,7 @@ package com.artbid.streaming.controller;
 import com.artbid.streaming.exception.InvalidStreamTransitionException;
 import com.artbid.streaming.exception.LivestreamAlreadyLiveException;
 import com.artbid.streaming.exception.LivestreamNotFoundException;
+import com.artbid.streaming.exception.StageTokenRateLimitExceededException;
 import com.artbid.streaming.exception.StreamingAccessDeniedException;
 import com.artbid.streaming.exception.StreamingAuthRequiredException;
 import org.springframework.core.annotation.Order;
@@ -58,5 +59,11 @@ public class StreamingExceptionHandler {
 	public ResponseEntity<ErrorResponse> awsFailure(SdkException e) {
 		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
 				.body(new ErrorResponse("IVS_UNAVAILABLE", "라이브 방송 서버와 통신하지 못했습니다. 잠시 후 다시 시도해주세요."));
+	}
+
+	@ExceptionHandler(StageTokenRateLimitExceededException.class)
+	public ResponseEntity<ErrorResponse> rateLimited(StageTokenRateLimitExceededException e) {
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+				.body(new ErrorResponse("STAGE_TOKEN_RATE_LIMITED", e.getMessage()));
 	}
 }

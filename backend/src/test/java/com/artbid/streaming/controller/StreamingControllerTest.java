@@ -2,11 +2,14 @@ package com.artbid.streaming.controller;
 
 import com.artbid.common.exception.GlobalExceptionHandler;
 import com.artbid.streaming.domain.Livestream;
+import com.artbid.streaming.dto.StageTokenResponse;
 import com.artbid.streaming.exception.InvalidStreamTransitionException;
 import com.artbid.streaming.exception.LivestreamAlreadyLiveException;
 import com.artbid.streaming.exception.LivestreamNotFoundException;
+import com.artbid.streaming.exception.StageTokenRateLimitExceededException;
 import com.artbid.streaming.exception.StreamingAccessDeniedException;
 import com.artbid.streaming.service.StreamingService;
+import com.artbid.streaming.service.StreamingTokenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -14,21 +17,27 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import software.amazon.awssdk.core.exception.SdkException;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class StreamingControllerTest {
 
+	private static final Principal CONSIGNOR = () -> "5";
+
 	private StreamingService service;
+	private StreamingTokenService tokenService;
 	private MockMvc mvc;
 
 	@BeforeEach
 	void setup() {
 		service = mock(StreamingService.class);
-		mvc = MockMvcBuilders.standaloneSetup(new StreamingController(service))
+		tokenService = mock(StreamingTokenService.class);
+		mvc = MockMvcBuilders.standaloneSetup(new StreamingController(service, tokenService))
 				.setControllerAdvice(new GlobalExceptionHandler(), new StreamingExceptionHandler()).build();
 	}
 
@@ -83,8 +92,6 @@ class StreamingControllerTest {
 				.andExpect(jsonPath("$.code").value("LIVESTREAM_NOT_FOUND"));
 	}
 
-	private static final Principal CONSIGNOR = () -> "5";
-
 	@Test
 	void 위탁자가_연결_끊김을_보고하면_DISCONNECTED_상태를_돌려준다() throws Exception {
 		Livestream disconnected = live(1L);
@@ -132,5 +139,37 @@ class StreamingControllerTest {
 		mvc.perform(post("/api/auctions/1/stream/reconnect").principal(CONSIGNOR))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.status").value("LIVE"));
+	}
+
+	@Test
+	void 로그인한_사용자가_토큰을_요청하면_Principal에서_회원ID를_꺼내_넘긴다() throws Exception {
+		Principal principal = () -> "5";
+		when(tokenService.issueToken(eq(1L), eq(5L), anyString()))
+				.thenReturn(new StageTokenResponse("token-value", "SUBSCRIBE", Instant.parse("2026-01-01T00:00:00Z")));
+
+		mvc.perform(post("/api/auctions/1/stream/tokens").principal(principal))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.token").value("token-value"))
+				.andExpect(jsonPath("$.role").value("SUBSCRIBE"));
+	}
+
+	@Test
+	void 비로그인이면_null_회원ID로_토큰을_요청한다() throws Exception {
+		when(tokenService.issueToken(eq(1L), isNull(), anyString()))
+				.thenReturn(new StageTokenResponse("token-value", "SUBSCRIBE", Instant.parse("2026-01-01T00:00:00Z")));
+
+		mvc.perform(post("/api/auctions/1/stream/tokens"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.role").value("SUBSCRIBE"));
+	}
+
+	@Test
+	void 레이트리밋_초과면_429() throws Exception {
+		when(tokenService.issueToken(eq(1L), isNull(), anyString()))
+				.thenThrow(new StageTokenRateLimitExceededException("203.0.113.5"));
+
+		mvc.perform(post("/api/auctions/1/stream/tokens"))
+				.andExpect(status().isTooManyRequests())
+				.andExpect(jsonPath("$.code").value("STAGE_TOKEN_RATE_LIMITED"));
 	}
 }
