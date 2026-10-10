@@ -74,7 +74,7 @@ public class ArtworkService {
 			return Map.of();
 		}
 		return auctionRepository.findByArtworkIdIn(artworkIds).stream()
-				.collect(Collectors.toMap(Auction::getArtworkId, Auction::getId));
+				.collect(Collectors.toMap(Auction::getArtworkId, Auction::getId, Long::max));
 	}
 
 	public ArtworkDetailResponse getArtwork(Long artworkId) {
