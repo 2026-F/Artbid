@@ -9,9 +9,11 @@ import java.util.Map;
 public record ArtworkPageResponse(List<ArtworkSummaryResponse> content, int page, int size, long totalElements,
 		int totalPages) {
 
-	public static ArtworkPageResponse of(Page<Artwork> page, Map<Long, String> artistNames) {
+	public static ArtworkPageResponse of(Page<Artwork> page, Map<Long, String> artistNames,
+										 Map<Long, Long> auctionIds) {
 		List<ArtworkSummaryResponse> content = page.getContent().stream()
-				.map(artwork -> ArtworkSummaryResponse.of(artwork, artistNames.get(artwork.getArtistId())))
+				.map(artwork -> ArtworkSummaryResponse.of(artwork, artistNames.get(artwork.getArtistId()),
+						auctionIds.get(artwork.getId())))
 				.toList();
 		return new ArtworkPageResponse(content, page.getNumber(), page.getSize(), page.getTotalElements(),
 				page.getTotalPages());

@@ -12,12 +12,15 @@ import com.artbid.artwork.exception.ArtworkNotFoundException;
 import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.artwork.repository.ArtworkSearchCondition;
 import com.artbid.artwork.repository.ArtworkSpecifications;
+import com.artbid.auction.domain.Auction;
 import com.artbid.media.repository.ArtworkMediaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.artbid.auction.repository.AuctionRepository;
+
 
 import java.util.Map;
 import java.util.Objects;
@@ -32,6 +35,8 @@ public class ArtworkService {
 	private final ArtworkRepository artworkRepository;
 	private final ArtistRepository artistRepository;
 	private final ArtworkMediaRepository artworkMediaRepository;
+	private final AuctionRepository auctionRepository;
+
 
 	@Transactional
 	public ArtworkDetailResponse register(ArtworkCreateRequest request) {
@@ -59,7 +64,17 @@ public class ArtworkService {
 
 	public ArtworkPageResponse getArtworks(ArtworkSearchCondition condition, Pageable pageable) {
 		Page<Artwork> page = artworkRepository.findAll(ArtworkSpecifications.matches(condition), pageable);
-		return ArtworkPageResponse.of(page, findArtistNames(page));
+		return ArtworkPageResponse.of(page, findArtistNames(page), findAuctionIds(page));
+	}
+
+	// findArtistNames()랑 똑같은 패턴 — 작품마다 따로 조회 안 하고 한 번에 가져옴
+	private Map<Long, Long> findAuctionIds(Page<Artwork> page) {
+		Set<Long> artworkIds = page.getContent().stream().map(Artwork::getId).collect(Collectors.toSet());
+		if (artworkIds.isEmpty()) {
+			return Map.of();
+		}
+		return auctionRepository.findByArtworkIdIn(artworkIds).stream()
+				.collect(Collectors.toMap(Auction::getArtworkId, Auction::getId));
 	}
 
 	public ArtworkDetailResponse getArtwork(Long artworkId) {
