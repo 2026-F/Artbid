@@ -1,15 +1,25 @@
 package com.artbid.streaming.service;
 
+import com.artbid.artwork.domain.Artwork;
+import com.artbid.artwork.domain.ArtworkCategory;
+import com.artbid.artwork.repository.ArtworkRepository;
+import com.artbid.auction.domain.Auction;
+import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.infra.streaming.IvsStageClient;
+import com.artbid.streaming.config.StreamReconnectProperties;
 import com.artbid.streaming.domain.Livestream;
 import com.artbid.streaming.domain.LivestreamStatus;
+import com.artbid.streaming.exception.InvalidStreamTransitionException;
 import com.artbid.streaming.exception.LivestreamAlreadyLiveException;
 import com.artbid.streaming.exception.LivestreamNotFoundException;
+import com.artbid.streaming.exception.StreamingAccessDeniedException;
 import com.artbid.streaming.repository.LivestreamRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,15 +31,32 @@ import static org.mockito.Mockito.*;
 class StreamingServiceTest {
 
 	private LivestreamRepository livestreamRepository;
+	private AuctionRepository auctionRepository;
+	private ArtworkRepository artworkRepository;
 	private IvsStageClient ivsStageClient;
+	private StreamReconnectProperties reconnectProperties;
 	private StreamingService streamingService;
 
 	@BeforeEach
 	void setup() {
 		livestreamRepository = mock(LivestreamRepository.class);
+		auctionRepository = mock(AuctionRepository.class);
+		artworkRepository = mock(ArtworkRepository.class);
 		ivsStageClient = mock(IvsStageClient.class);
-		streamingService = new StreamingService(livestreamRepository, ivsStageClient);
+		reconnectProperties = new StreamReconnectProperties();
+		streamingService = new StreamingService(
+				livestreamRepository, auctionRepository, artworkRepository, ivsStageClient, reconnectProperties);
 		when(livestreamRepository.save(any(Livestream.class))).thenAnswer(invocation -> invocation.getArgument(0));
+	}
+
+	/** auctionId의 위탁자가 consignorId인 Auction/Artwork 조회 체인을 이어준다. */
+	private void givenConsignor(Long auctionId, Long artworkId, Long consignorId) {
+		Auction auction = Auction.builder().id(auctionId).artworkId(artworkId).build();
+		Artwork artwork = Artwork.builder()
+				.consignorId(consignorId).artistId(1L).title("작품")
+				.category(ArtworkCategory.PAINTING).startPrice(1000L).build();
+		when(auctionRepository.findById(auctionId)).thenReturn(Optional.of(auction));
+		when(artworkRepository.findById(artworkId)).thenReturn(Optional.of(artwork));
 	}
 
 	private Livestream liveStream(Long auctionId, String stageArn) {
@@ -104,5 +131,80 @@ class StreamingServiceTest {
 
 		assertThatThrownBy(() -> streamingService.getStream(99L))
 				.isInstanceOf(LivestreamNotFoundException.class);
+	}
+
+	@Test
+	void 위탁자_본인이_연결_끊김을_보고하면_DISCONNECTED가_된다() {
+		Livestream live = liveStream(1L, "arn:stage-1");
+		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(live));
+		givenConsignor(1L, 10L, 5L);
+
+		Livestream result = streamingService.reportDisconnected(1L, 5L);
+
+		assertThat(result.getStatus()).isEqualTo(LivestreamStatus.DISCONNECTED);
+		verify(ivsStageClient, never()).deleteStageIfExists(any());
+	}
+
+	@Test
+	void 위탁자가_아니면_연결_끊김_보고가_막힌다() {
+		Livestream live = liveStream(1L, "arn:stage-1");
+		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(live));
+		givenConsignor(1L, 10L, 5L);
+
+		assertThatThrownBy(() -> streamingService.reportDisconnected(1L, 999L))
+				.isInstanceOf(StreamingAccessDeniedException.class);
+		assertThat(live.getStatus()).isEqualTo(LivestreamStatus.LIVE);
+	}
+
+	@Test
+	void LIVE가_아닐때_연결_끊김을_보고하면_409에_해당하는_예외() {
+		Livestream ended = liveStream(1L, "arn:stage-1");
+		ended.markEnded(LocalDateTime.now());
+		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(ended));
+		givenConsignor(1L, 10L, 5L);
+
+		assertThatThrownBy(() -> streamingService.reportDisconnected(1L, 5L))
+				.isInstanceOf(InvalidStreamTransitionException.class);
+	}
+
+	@Test
+	void 위탁자_본인이_재연결을_보고하면_다시_LIVE가_된다() {
+		Livestream live = liveStream(1L, "arn:stage-1");
+		live.markDisconnected(LocalDateTime.now());
+		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(live));
+		givenConsignor(1L, 10L, 5L);
+
+		Livestream result = streamingService.reconnect(1L, 5L);
+
+		assertThat(result.getStatus()).isEqualTo(LivestreamStatus.LIVE);
+		assertThat(result.getDisconnectedAt()).isNull();
+	}
+
+	@Test
+	void 비로그인이면_연결_끊김_보고도_재연결_보고도_접근이_막힌다() {
+		Livestream live = liveStream(1L, "arn:stage-1");
+		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(live));
+		givenConsignor(1L, 10L, 5L);
+
+		assertThatThrownBy(() -> streamingService.reportDisconnected(1L, null))
+				.isInstanceOf(StreamingAccessDeniedException.class);
+	}
+
+	@Test
+	void timeout을_넘겨_끊긴_방송은_스테이지를_삭제하고_ENDED로_정리된다() {
+		reconnectProperties.setTimeout(Duration.ofMinutes(2));
+		Livestream abandoned = liveStream(1L, "arn:stage-1");
+		abandoned.markDisconnected(LocalDateTime.now().minusMinutes(5));
+		Livestream freshlyDisconnected = liveStream(2L, "arn:stage-2");
+		freshlyDisconnected.markDisconnected(LocalDateTime.now());
+		when(livestreamRepository.findAllByStatus(LivestreamStatus.DISCONNECTED))
+				.thenReturn(List.of(abandoned, freshlyDisconnected));
+
+		streamingService.endAbandonedDisconnectedStreams();
+
+		assertThat(abandoned.getStatus()).isEqualTo(LivestreamStatus.ENDED);
+		verify(ivsStageClient).deleteStageIfExists("arn:stage-1");
+		assertThat(freshlyDisconnected.getStatus()).isEqualTo(LivestreamStatus.DISCONNECTED);
+		verify(ivsStageClient, never()).deleteStageIfExists("arn:stage-2");
 	}
 }
