@@ -36,6 +36,12 @@ app:
     region: ap-northeast-2
   frontend:
     base-url: http://localhost:3000
+  streaming:
+    token:
+      publish-duration: 180m
+      subscribe-duration: 10m
+      subscribe-rate-limit: 20
+      subscribe-rate-limit-window: 10m
 
 media:
   storage:

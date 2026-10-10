@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Getter
 @NoArgsConstructor
@@ -20,29 +22,33 @@ public class Livestream {
 
 	private Long auctionId;
 
-	// AWS IVS 채널 리소스 식별자
-	private String ivsChannelArn;
-	private String streamKey;
-	private String ingestEndpoint; // streamKey와 합쳐 위탁자가 OBS 등에 등록할 RTMP(S) 주소가 됨
-	private String playbackUrl;
+	// AWS IVS Real-Time 스테이지 식별자. 참여 토큰을 발급할 때 이 값이 필요하다.
+	private String stageArn;
 
 	@Enumerated(EnumType.STRING)
 	private LivestreamStatus status;
 
+	private LocalDateTime startedAt;
+	private LocalDateTime endedAt;
+
 	/**
-	 * 새 IVS 채널 정보로 (재)활성화한다. 처음 시작할 때뿐 아니라, 한 번 끝난(ENDED) 경매를
-	 * 다시 시작할 때도 같은 행을 재사용해서 새 채널 정보로 덮어쓴다.
+	 * 새 스테이지로 (재)활성화한다. 처음 시작할 때뿐 아니라, 한 번 끝난(ENDED) 경매를
+	 * 다시 시작할 때도 같은 행을 재사용해서 새 스테이지 정보로 덮어쓴다.
 	 */
-	public void activate(String ivsChannelArn, String streamKey, String ingestEndpoint, String playbackUrl) {
-		this.ivsChannelArn = ivsChannelArn;
-		this.streamKey = streamKey;
-		this.ingestEndpoint = ingestEndpoint;
-		this.playbackUrl = playbackUrl;
+	public void activate(String stageArn, LocalDateTime now) {
+		this.stageArn = stageArn;
 		this.status = LivestreamStatus.LIVE;
+		this.startedAt = now;
+		this.endedAt = null;
 	}
 
-	/** AWS IVS 쪽 스트림을 강제 종료한 뒤 상태를 반영한다. */
-	public void markEnded() {
+	/** AWS IVS 쪽 스테이지를 삭제한 뒤 상태를 반영한다. */
+	public void markEnded(LocalDateTime now) {
 		this.status = LivestreamStatus.ENDED;
+		this.endedAt = now;
+	}
+
+	public boolean isLive() {
+		return status == LivestreamStatus.LIVE;
 	}
 }
