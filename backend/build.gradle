@@ -8,7 +8,12 @@ group = 'com.artbid'
 version = '0.0.1-SNAPSHOT'
 
 java {
-	sourceCompatibility = '17'
+	// 컴파일·테스트·bootRun을 모두 Java 21로 실행한다.
+	// PC에 설치된 JDK(예: 25)는 Gradle을 띄우는 데만 쓰이고, 21이 없으면
+	// settings.gradle의 foojay 리졸버가 자동으로 내려받는다.
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
 }
 
 repositories {
