@@ -15,7 +15,7 @@
 
 기술적으로는 Redis + Lua로 동시 입찰을 원자적으로 판정하고, Kafka에는 확정된 입찰만
 순서 보장된 로그로 쌓아 재생(replay)·감사가 가능하도록 설계했습니다. 라이브 스트리밍은
-AWS IVS(RTMP 송출 → HLS 재생)를, 3D/AR 작품 뷰어는 glTF/GLB + `<model-viewer>`를 기반으로
+AWS IVS Real-Time Streaming(WebRTC 스테이지)을, 3D/AR 작품 뷰어는 glTF/GLB + `<model-viewer>`를 기반으로
 합니다.
 
 
@@ -32,7 +32,7 @@ artbid/
 ```
 com.artbid
 ├── auction/      경매·입찰 (핵심 도메인, Redis Lua / Kafka 연결 지점) — 트랙 1
-├── streaming/    라이브 스트리밍 (AWS IVS 채널·상태 관리)         — 트랙 2
+├── streaming/    라이브 스트리밍 (AWS IVS 스테이지·상태 관리)     — 트랙 2
 ├── media/        작품 미디어(사진·동영상·3D 모델) 업로드/조회      — 트랙 3
 ├── artwork/      작품 위탁·조회
 ├── member/       회원                                              — 트랙 4
@@ -45,7 +45,7 @@ com.artbid
     ├── realtime/     SSE/WebSocket, 다중 인스턴스 확장 시 Redis Pub/Sub 중계
     ├── storage/      S3 presigned URL 발급 (사진·동영상·3D 모델 업로드 공용) — 트랙 3
     ├── media/        AWS MediaConvert 동영상 트랜스코딩 연동          — 트랙 3
-    └── streaming/    AWS IVS 채널 생성/조회 연동                     — 트랙 2
+    └── streaming/    AWS IVS 스테이지 생성/삭제 연동                 — 트랙 2
 ```
 
 `infra/*`는 특정 도메인 소유가 아니라 여러 트랙이 공유하는 연동 코드이므로, 인터페이스를
@@ -58,7 +58,7 @@ com.artbid
 | `auction` | 경매·입찰 도메인, 동시성 제어, 안티 스나이핑 | 트랙 1 (경매 코어) |
 | `infra/kafka`, `infra/redis` | 입찰 이벤트 로그, compare-and-set Lua | 트랙 1 (경매 코어) |
 | `streaming` | 라이브 방송 시작/종료, 시청 URL 조회 API | 트랙 2 (라이브 스트리밍) |
-| `infra/streaming` | AWS IVS 채널 생성·streamKey 발급 | 트랙 2 (라이브 스트리밍) |
+| `infra/streaming` | AWS IVS 스테이지 생성·삭제, 참여 토큰 발급 | 트랙 2 (라이브 스트리밍) |
 | `media` | 작품 사진·동영상·3D 모델 업로드/목록 API | 트랙 3 (미디어·3D·AR) |
 | `infra/storage`, `infra/media` | S3 presigned URL, MediaConvert 트랜스코딩 | 트랙 3 (미디어·3D·AR) |
 | `artwork` | 작품 위탁·심사·조회 | 트랙 3 (미디어·3D·AR)과 겸임 가능 |
@@ -116,9 +116,7 @@ Conventional Commits 형식을 사용합니다: `type: 내용 (한글 가능)`
 - `infra/realtime` — 다중 인스턴스 확장 시 Redis Pub/Sub 중계 추가
 - `infra/storage/S3PresignedUrlProvider` — AWS SDK S3Presigner 연동
 - `infra/media/MediaConvertClient` — MediaConvert 트랜스코딩 job 요청
-- `infra/streaming/IvsChannelClient` — AWS IVS 채널 생성/조회, streamKey 발급
 - `media/service/MediaService` — presigned URL 발급, 업로드 완료 콜백 처리
-- `streaming/service/StreamingService` — IVS 채널 생성 결과를 Livestream 엔티티에 반영
 - `payment` — 결제 실패 시 보상 트랜잭션(Saga) 흐름
 - `common/util/HmacUtil` — 감정서·인증서 서명 검증
 
