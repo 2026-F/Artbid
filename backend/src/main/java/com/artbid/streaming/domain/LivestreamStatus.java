@@ -1,5 +1,5 @@
 package com.artbid.streaming.domain;
 
 public enum LivestreamStatus {
-	SCHEDULED, LIVE, ENDED
+	SCHEDULED, LIVE, DISCONNECTED, ENDED
 }
