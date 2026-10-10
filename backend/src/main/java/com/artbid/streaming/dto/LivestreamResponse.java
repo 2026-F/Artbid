@@ -14,7 +14,8 @@ public record LivestreamResponse(
 		Long auctionId,
 		LivestreamStatus status,
 		LocalDateTime startedAt,
-		LocalDateTime endedAt
+		LocalDateTime endedAt,
+		LocalDateTime disconnectedAt
 ) {
 
 	public static LivestreamResponse from(Livestream livestream) {
@@ -23,6 +24,7 @@ public record LivestreamResponse(
 				livestream.getAuctionId(),
 				livestream.getStatus(),
 				livestream.getStartedAt(),
-				livestream.getEndedAt());
+				livestream.getEndedAt(),
+				livestream.getDisconnectedAt());
 	}
 }
