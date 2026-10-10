@@ -6,7 +6,11 @@ import com.artbid.streaming.config.FrontendProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/** 경매 고정 링크(/bid/{auctionId})를 QR코드로 내려준다. 오프라인 전시·현장에서 스캔해 입찰 페이지로 들어오는 용도. */
+/**
+ * 경매 라이브 시청 페이지(/auctions/{auctionId}/watch)를 QR코드로 내려준다.
+ * 오프라인 전시·현장에서 스캔해 바로 시청 페이지로 들어오는 용도.
+ * 프론트 라우트는 /bid/{itemId}가 아니라 /auctions/{id}/watch다(frontend 저장소 실제 구조 확인, 2026-10-10).
+ */
 @Service
 @RequiredArgsConstructor
 public class QrCodeService {
@@ -15,10 +19,10 @@ public class QrCodeService {
 	private final QrCodeGenerator qrCodeGenerator;
 	private final FrontendProperties frontendProperties;
 
-	public byte[] generateBidPageQrCode(Long auctionId) {
+	public byte[] generateWatchPageQrCode(Long auctionId) {
 		auctionService.getAuction(auctionId); // 없는 경매면 IllegalArgumentException(404)
 
-		String bidPageUrl = frontendProperties.getBaseUrl() + "/bid/" + auctionId;
-		return qrCodeGenerator.generatePng(bidPageUrl);
+		String watchPageUrl = frontendProperties.getBaseUrl() + "/auctions/" + auctionId + "/watch";
+		return qrCodeGenerator.generatePng(watchPageUrl);
 	}
 }

@@ -15,9 +15,9 @@ public class QrCodeController {
 
 	private final QrCodeService qrCodeService;
 
-	/** 이 경매의 고정 링크(/bid/{auctionId})를 가리키는 QR코드 PNG. */
+	/** 이 경매의 라이브 시청 페이지(/auctions/{auctionId}/watch)를 가리키는 QR코드 PNG. */
 	@GetMapping(produces = MediaType.IMAGE_PNG_VALUE)
 	public byte[] getQrCode(@PathVariable Long auctionId) {
-		return qrCodeService.generateBidPageQrCode(auctionId);
+		return qrCodeService.generateWatchPageQrCode(auctionId);
 	}
 }

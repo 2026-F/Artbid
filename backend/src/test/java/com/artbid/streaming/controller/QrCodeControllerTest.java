@@ -28,7 +28,7 @@ class QrCodeControllerTest {
 	@Test
 	void QR코드를_PNG로_내려준다() throws Exception {
 		byte[] png = {1, 2, 3};
-		when(qrCodeService.generateBidPageQrCode(7L)).thenReturn(png);
+		when(qrCodeService.generateWatchPageQrCode(7L)).thenReturn(png);
 
 		mvc.perform(get("/api/auctions/7/qrcode"))
 				.andExpect(status().isOk())
@@ -38,7 +38,7 @@ class QrCodeControllerTest {
 
 	@Test
 	void 없는_경매면_404() throws Exception {
-		when(qrCodeService.generateBidPageQrCode(99L))
+		when(qrCodeService.generateWatchPageQrCode(99L))
 				.thenThrow(new IllegalArgumentException("경매를 찾을 수 없습니다: 99"));
 
 		mvc.perform(get("/api/auctions/99/qrcode"))
