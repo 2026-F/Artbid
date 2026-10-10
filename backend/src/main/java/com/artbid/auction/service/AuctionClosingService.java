@@ -31,16 +31,6 @@ public class AuctionClosingService {
     private final BidRepository bidRepository;
     private final SettlementRepository settlementRepository;
 
-    @Scheduled(fixedDelay = 10_000) // 10초마다 마감 지난 경매 확인
-    @Transactional
-    public void closeEndedAuctions() {
-        LocalDateTime now = LocalDateTime.now();
-        List<Auction> ended = auctionRepository.findEndedAuctions(now);
-        for (Auction auction : ended) {
-            closeOne(auction.getId(), now);
-        }
-    }
-
     @Transactional
     public void closeOne(Long auctionId, LocalDateTime now){
         Auction auction = auctionRepository.findByIdForUpdate(auctionId)
