@@ -2,6 +2,7 @@ package com.artbid.streaming.controller;
 
 import com.artbid.streaming.dto.LivestreamResponse;
 import com.artbid.streaming.dto.StageTokenResponse;
+import com.artbid.streaming.exception.StreamingAuthRequiredException;
 import com.artbid.streaming.service.StreamingService;
 import com.artbid.streaming.service.StreamingTokenService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,6 +40,18 @@ public class StreamingController {
 		return LivestreamResponse.from(streamingService.getStream(auctionId));
 	}
 
+	/** 위탁자 클라이언트가 스테이지 연결이 끊긴 걸 감지하고 알려온다. 본인(위탁자)만 호출할 수 있다. */
+	@PostMapping("/disconnect")
+	public LivestreamResponse reportDisconnected(@PathVariable Long auctionId, Principal principal) {
+		return LivestreamResponse.from(streamingService.reportDisconnected(auctionId, requireMemberId(principal)));
+	}
+
+	/** 끊겼던 위탁자 클라이언트가 같은 스테이지로 다시 붙었음을 알려온다. */
+	@PostMapping("/reconnect")
+	public LivestreamResponse reconnect(@PathVariable Long auctionId, Principal principal) {
+		return LivestreamResponse.from(streamingService.reconnect(auctionId, requireMemberId(principal)));
+	}
+
 	/**
 	 * 스테이지 참여 토큰 발급. 로그인은 선택이다 — 비로그인이면 시청 토큰을 받는다.
 	 * 위탁자 본인이면 송출 토큰을, 그 외에는 시청 토큰을 받는다.
@@ -46,6 +59,18 @@ public class StreamingController {
 	@PostMapping("/tokens")
 	public StageTokenResponse issueToken(@PathVariable Long auctionId, Principal principal, HttpServletRequest request) {
 		return streamingTokenService.issueToken(auctionId, memberId(principal), clientIp(request));
+	}
+
+	/** /disconnect, /reconnect는 위탁자 본인 확인이 필요해 비로그인을 허용하지 않는다. */
+	private Long requireMemberId(Principal principal) {
+		if (principal != null) {
+			try {
+				return Long.parseLong(principal.getName());
+			} catch (NumberFormatException ignored) {
+				// 아래에서 인증 필요 예외로 처리
+			}
+		}
+		throw new StreamingAuthRequiredException();
 	}
 
 	/** 로그인하지 않았으면 null — 이 API는 비로그인 시청을 허용하므로 에러로 취급하지 않는다. */
