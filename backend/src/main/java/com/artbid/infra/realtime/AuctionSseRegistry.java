@@ -1,6 +1,8 @@
 package com.artbid.infra.realtime;
 
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
@@ -42,6 +44,23 @@ public class AuctionSseRegistry {
 			} catch (Exception e) {
 				auctionEmitters.remove(emitter);
 			}
+		}
+	}
+
+
+	// broadcast()를 DB 트랜잭션이 진짜로 커밋된 뒤에만 실행되게 감싸주는 버전.
+	// closeOne()이 트랜잭션 도중 뭔가 실패해서 롤백되면, 경매는 사실 안 닫힌 건데
+	// 사용자한테는 "마감됐다"는 알림이 먼저 나가버리는 상황을 막기 위함.
+	public void broadcastAfterCommit(Long auctionId, Object payload){
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					broadcast(auctionId, payload);
+				}
+			});
+		} else {
+			broadcast(auctionId, payload);
 		}
 	}
 }

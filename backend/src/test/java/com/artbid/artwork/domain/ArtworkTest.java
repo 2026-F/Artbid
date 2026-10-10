@@ -77,4 +77,14 @@ class ArtworkTest {
 			assertThat(artwork.getTitle()).isEqualTo("무제");
 		}
 	}
+
+	@Test
+	void 낙찰_처리하면_판매완료_상태가_된다() {
+		Artwork artwork = artwork();
+		ReflectionTestUtils.setField(artwork, "status", ArtworkStatus.IN_AUCTION);
+
+		artwork.markSold();
+
+		assertThat(artwork.getStatus()).isEqualTo(ArtworkStatus.SOLD);
+	}
 }
