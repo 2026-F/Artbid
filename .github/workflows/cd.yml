@@ -43,7 +43,20 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd ~/Artbid
-            git pull origin main
-            docker compose pull backend
-            docker compose up -d backend
+             set -e  # 중간에 실패하면 즉시 중단 (지금까지는 없어서 실패해도 다음 줄 계속 실행됐음)
+            
+             cd ~/Artbid
+             git pull origin main
+            
+             BEFORE=$(docker image inspect ghcr.io/2026-f/artbid-backend:latest --format='{{.Id}}' 2>/dev/null || echo "none")
+            
+             docker compose pull backend
+             docker compose up -d --force-recreate backend
+            
+             AFTER=$(docker image inspect ghcr.io/2026-f/artbid-backend:latest --format='{{.Id}}' 2>/dev/null)
+            
+             echo "배포 전 이미지: $BEFORE"
+             echo "배포 후 이미지: $AFTER"
+            
+             # 디스크 여유 공간도 매 배포마다 로그로 남겨서, 꽉 차기 전에 미리 알아챌 수 있게
+             df -h / | tail -1
