@@ -34,6 +34,10 @@ dependencies {
 	// IVS Real-Time Streaming(스테이지·참여 토큰)
 	implementation 'software.amazon.awssdk:ivsrealtime'
 
+	// QR코드 생성(경매 고정 링크)
+	implementation 'com.google.zxing:core:3.5.3'
+	implementation 'com.google.zxing:javase:3.5.3'
+
 	runtimeOnly 'org.postgresql:postgresql'
 
 	compileOnly 'org.projectlombok:lombok'

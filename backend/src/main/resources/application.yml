@@ -34,6 +34,8 @@ app:
     allowed-origins: http://localhost:3000,  https://artbid-chi.vercel.app
   aws:
     region: ap-northeast-2
+  frontend:
+    base-url: http://localhost:3000
   streaming:
     token:
       publish-duration: 180m
