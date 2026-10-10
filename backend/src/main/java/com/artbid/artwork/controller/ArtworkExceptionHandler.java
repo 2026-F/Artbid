@@ -55,9 +55,4 @@ public class ArtworkExceptionHandler {
 	public ResponseEntity<ErrorResponse> invalid(IllegalArgumentException e) {
 		return ResponseEntity.badRequest().body(new ErrorResponse("VALIDATION_ERROR", e.getMessage()));
 	}
-
-	@ExceptionHandler(ArtworkNotEditableException.class)
-	public ResponseEntity<String> handleArtworkNotEditable(ArtworkNotEditableException e) {
-		return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
-	}
 }
