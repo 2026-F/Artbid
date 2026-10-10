@@ -9,11 +9,12 @@ import com.artbid.artwork.domain.ArtworkStatus;
  * id, title, imageUrl, startPrice, estimatedPrice, status 필드명은 그대로 유지했다.
  */
 public record ArtworkSummaryResponse(Long id, String title, Long artistId, String artistName,
-		ArtworkCategory category, String imageUrl, Long startPrice, Long estimatedPrice, ArtworkStatus status) {
+									 ArtworkCategory category, String imageUrl, Long startPrice, Long estimatedPrice, ArtworkStatus status,
+									 Long auctionId) {
 
-	public static ArtworkSummaryResponse of(Artwork artwork, String artistName) {
+	public static ArtworkSummaryResponse of(Artwork artwork, String artistName, Long auctionId) {
 		return new ArtworkSummaryResponse(artwork.getId(), artwork.getTitle(), artwork.getArtistId(), artistName,
 				artwork.getCategory(), artwork.getImageUrl(), artwork.getStartPrice(), artwork.getEstimatedPrice(),
-				artwork.getStatus());
+				artwork.getStatus(), auctionId);
 	}
 }
