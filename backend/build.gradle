@@ -33,6 +33,10 @@ dependencies {
 	implementation 'software.amazon.awssdk:mediaconvert'
 	implementation 'software.amazon.awssdk:ivs'
 
+	// QR코드 생성(경매 고정 링크)
+	implementation 'com.google.zxing:core:3.5.3'
+	implementation 'com.google.zxing:javase:3.5.3'
+
 	runtimeOnly 'org.postgresql:postgresql'
 
 	compileOnly 'org.projectlombok:lombok'
