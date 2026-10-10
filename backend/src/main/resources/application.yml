@@ -34,6 +34,10 @@ app:
     allowed-origins: http://localhost:3000,  https://artbid-chi.vercel.app
   aws:
     region: ap-northeast-2
+  streaming:
+    reconnect:
+      timeout: 2m        # 끊긴 뒤 이 시간 안에 재연결 못 하면 자동으로 방송 종료
+      sweep-interval-ms: 30000
 
 media:
   storage:
