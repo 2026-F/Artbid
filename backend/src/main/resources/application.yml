@@ -34,6 +34,12 @@ app:
     allowed-origins: http://localhost:3000,  https://artbid-chi.vercel.app
   aws:
     region: ap-northeast-2
+  streaming:
+    token:
+      publish-duration: 180m
+      subscribe-duration: 10m
+      subscribe-rate-limit: 20
+      subscribe-rate-limit-window: 10m
 
 media:
   storage:

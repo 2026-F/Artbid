@@ -4,11 +4,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.services.ivsrealtime.IvsRealTimeClient;
+import software.amazon.awssdk.services.ivsrealtime.model.CreateParticipantTokenRequest;
+import software.amazon.awssdk.services.ivsrealtime.model.CreateParticipantTokenResponse;
 import software.amazon.awssdk.services.ivsrealtime.model.CreateStageRequest;
 import software.amazon.awssdk.services.ivsrealtime.model.CreateStageResponse;
 import software.amazon.awssdk.services.ivsrealtime.model.DeleteStageRequest;
+import software.amazon.awssdk.services.ivsrealtime.model.ParticipantToken;
+import software.amazon.awssdk.services.ivsrealtime.model.ParticipantTokenCapability;
 import software.amazon.awssdk.services.ivsrealtime.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.ivsrealtime.model.Stage;
+
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -59,5 +66,29 @@ class IvsStageClientTest {
 				.thenThrow(ResourceNotFoundException.builder().message("not found").build());
 
 		assertThatCode(() -> ivsStageClient.deleteStageIfExists(STAGE_ARN)).doesNotThrowAnyException();
+	}
+
+	@Test
+	void 참여_토큰을_분_단위_duration으로_변환해서_요청한다() {
+		Instant expiresAt = Instant.parse("2026-01-01T00:00:00Z");
+		ParticipantToken participantToken = ParticipantToken.builder()
+				.token("token-value")
+				.participantId("participant-1")
+				.expirationTime(expiresAt)
+				.build();
+		when(ivsRealTimeClient.createParticipantToken(any(CreateParticipantTokenRequest.class)))
+				.thenReturn(CreateParticipantTokenResponse.builder().participantToken(participantToken).build());
+
+		ParticipantToken result = ivsStageClient.createParticipantToken(
+				STAGE_ARN, "member-1", ParticipantTokenCapability.PUBLISH, Duration.ofSeconds(150));
+
+		ArgumentCaptor<CreateParticipantTokenRequest> captor = ArgumentCaptor.forClass(CreateParticipantTokenRequest.class);
+		verify(ivsRealTimeClient).createParticipantToken(captor.capture());
+		assertThat(captor.getValue().stageArn()).isEqualTo(STAGE_ARN);
+		assertThat(captor.getValue().userId()).isEqualTo("member-1");
+		assertThat(captor.getValue().capabilities()).containsExactly(ParticipantTokenCapability.PUBLISH);
+		assertThat(captor.getValue().duration()).isEqualTo(2); // 150초 -> 2분(버림)
+		assertThat(result.token()).isEqualTo("token-value");
+		assertThat(result.expirationTime()).isEqualTo(expiresAt);
 	}
 }

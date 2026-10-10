@@ -4,17 +4,21 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.ivsrealtime.IvsRealTimeClient;
+import software.amazon.awssdk.services.ivsrealtime.model.CreateParticipantTokenRequest;
 import software.amazon.awssdk.services.ivsrealtime.model.CreateStageRequest;
 import software.amazon.awssdk.services.ivsrealtime.model.DeleteStageRequest;
+import software.amazon.awssdk.services.ivsrealtime.model.ParticipantToken;
+import software.amazon.awssdk.services.ivsrealtime.model.ParticipantTokenCapability;
 import software.amazon.awssdk.services.ivsrealtime.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.ivsrealtime.model.Stage;
 
+import java.time.Duration;
 import java.util.Map;
 
 /**
- * AWS IVS Real-Time Streaming 스테이지 생성/삭제를 담당.
+ * AWS IVS Real-Time Streaming 스테이지 생성/삭제와 참여 토큰 발급을 담당.
  * 스테이지는 WebRTC 기반 "방"이다. 위탁자는 PUBLISH 토큰으로 영상을 올리고, 시청자는
- * SUBSCRIBE 토큰으로 영상을 받는다. 토큰 발급은 이 클라이언트의 다음 단계에서 추가한다.
+ * SUBSCRIBE 토큰으로 영상을 받는다.
  * 저지연 채널과 달리 RTMP 주소·streamKey·playbackUrl 같은 값은 없다.
  */
 @Slf4j
@@ -55,5 +59,23 @@ public class IvsStageClient {
     /** 스테이지 이름은 영문·숫자·-·_ 만 허용되고 128자 이하여야 한다. */
     static String stageName(Long auctionId) {
         return "artbid-auction-" + auctionId;
+    }
+
+    /**
+     * 스테이지에 들어갈 참여 토큰을 발급한다.
+     * duration은 분 단위로만 받을 수 있고(AWS 쪽 최댓값 180분), 초 단위 이하는 버림된다.
+     */
+    public ParticipantToken createParticipantToken(String stageArn, String userId,
+            ParticipantTokenCapability capability, Duration duration) {
+        ParticipantToken token = ivsRealTimeClient.createParticipantToken(CreateParticipantTokenRequest.builder()
+                        .stageArn(stageArn)
+                        .userId(userId)
+                        .capabilities(capability)
+                        .duration((int) duration.toMinutes())
+                        .build())
+                .participantToken();
+
+        log.info("[IVS] 참여 토큰 발급: stageArn={}, userId={}, capability={}", stageArn, userId, capability);
+        return token;
     }
 }
