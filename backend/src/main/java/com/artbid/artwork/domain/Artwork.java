@@ -155,6 +155,21 @@ public class Artwork {
 		return value;
 	}
 
+	public void approve(){
+		if(status != ArtworkStatus.PENDING_REVIEW){
+			throw new ArtworkNotEditableException(id, status);
+		}
+		this.status = ArtworkStatus.PREVIEW;
+	}
+
+	public void reject(){
+		if(status != ArtworkStatus.PENDING_REVIEW){
+			throw new ArtworkNotEditableException(id, status);
+		}
+
+		this.status = ArtworkStatus.REJECTED;
+	}
+
 	private static String requireTitle(String title) {
 		if (title == null || title.isBlank()) {
 			throw new IllegalArgumentException("작품 제목은 비어 있을 수 없습니다");

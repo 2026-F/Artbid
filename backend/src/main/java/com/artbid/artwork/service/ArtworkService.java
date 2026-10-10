@@ -108,4 +108,18 @@ public class ArtworkService {
 			throw new ArtistNotFoundException(artistId);
 		}
 	}
+
+	@Transactional
+	public void approve(Long artworkId){
+		Artwork artwork = artworkRepository.findById(artworkId)
+				.orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다. " + artworkId));
+		artwork.approve();
+	}
+
+	@Transactional
+	public void reject(Long artworkId){
+		Artwork artwork = artworkRepository.findById(artworkId)
+				.orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다. " + artworkId));
+		artwork.reject();
+	}
 }

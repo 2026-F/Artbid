@@ -79,4 +79,20 @@ public class ArtworkController {
 			default -> throw new IllegalArgumentException("지원하지 않는 정렬입니다: " + sort);
 		};
 	}
+
+	//작품 상태
+
+	@PostMapping("/{artworkId}/approve")
+	public ResponseEntity<Void> approve(@PathVariable Long artworkId){
+		artworkService.approve(artworkId);
+		return ResponseEntity.noContent().build();
+	}
+
+	@PostMapping("/{artworkId}/reject")
+	public ResponseEntity<Void> reject(@PathVariable Long artworkId) {
+		artworkService.reject(artworkId);
+		return ResponseEntity.noContent().build();
+	}
+
+
 }
