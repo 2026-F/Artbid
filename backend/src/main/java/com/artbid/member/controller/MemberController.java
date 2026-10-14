@@ -17,7 +17,7 @@ public class MemberController {
 	private final MemberService memberService;
 
 	@GetMapping("/{id}")
-	public Member getMember(@PathVariable Long id) {
+	public MemberResponse getMember(@PathVariable Long id) {
 		return MemberResponse.from(memberService.getMember(id));
 	}
 }
