@@ -23,6 +23,10 @@ public class AuthService {
     @Transactional
     public Member signUp(String email, String password,String name){
 
+        if (memberRepository.existsByEmail(email)) {
+            throw new IllegalArgumentException("이미 가입된 이메일입니다: " + email);
+        }
+
         Member member = Member.signUp(email, passwordEncoder.encode(password), name, MemberRole.BIDDER);
         return memberRepository.save(member);
     }
