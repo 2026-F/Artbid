@@ -21,10 +21,10 @@ public class AuthService {
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     @Transactional
-    public Member singUp(String email, String password,String name){
+    public Member signUp(String email, String password,String name){
 
         Member member = Member.signUp(email, passwordEncoder.encode(password), name, MemberRole.BIDDER);
-        return MemberRepository.save(member);
+        return memberRepository.save(member);
     }
 
     @Transactional
