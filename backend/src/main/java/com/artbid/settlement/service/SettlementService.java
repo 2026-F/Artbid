@@ -15,4 +15,9 @@ public class SettlementService {
 		return settlementRepository.findById(id)
 				.orElseThrow(() -> new IllegalArgumentException("정산 내역을 찾을 수 없습니다: " + id));
 	}
+
+	public Settlement getSettlementByAuctionId(Long auctionId) {
+		return settlementRepository.findByAuctionId(auctionId)
+				.orElseThrow(() -> new IllegalArgumentException("해당 경매의 정산 내역이 없습니다: " + auctionId));
+	}
 }

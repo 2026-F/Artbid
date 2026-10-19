@@ -21,9 +21,11 @@ public class MediaController {
 		return mediaService.issuePresignedUrl(artworkId, fileName, contentType);
 	}
 
+	// mediaType은 /presigned-url 응답의 mediaType 값을 그대로 전달한다 (PHOTO / VIDEO / MODEL_3D)
 	@PostMapping("/complete")
-	public void completeUpload(@PathVariable Long artworkId, @RequestParam String objectKey) {
-		mediaService.completeUpload(artworkId, objectKey);
+	public void completeUpload(@PathVariable Long artworkId, @RequestParam String objectKey,
+			@RequestParam String mediaType) {
+		mediaService.completeUpload(artworkId, objectKey, mediaType);
 	}
 
 	@GetMapping

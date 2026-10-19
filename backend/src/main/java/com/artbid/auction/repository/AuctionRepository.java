@@ -10,6 +10,9 @@ import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 
 
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface AuctionRepository extends JpaRepository<Auction, Long> {
@@ -22,5 +25,10 @@ public interface AuctionRepository extends JpaRepository<Auction, Long> {
 
     // 위 쿼리로 id 보내는 용도
     Optional<Auction> findByIdForUpdate(@Param("id") Long id);
+
+    List<Auction> findByArtworkIdIn(Collection<Long> artworkIds);
+
+    @Query("select a from Auction a where a.status in ('ONGOING','EXTENDED') and a.auctionEndAt <= :now")
+    List<Auction> findEndedAuctions(@Param("now") LocalDateTime now);
 }
 

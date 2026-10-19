@@ -1,7 +1,6 @@
 package com.artbid.media.service;
 
 import com.artbid.artwork.repository.ArtworkRepository;
-import com.artbid.infra.media.MediaConvertClient;
 import com.artbid.infra.storage.S3PresignedUrlProvider;
 import com.artbid.media.domain.ArtworkMedia;
 import com.artbid.media.domain.MediaType;
@@ -17,12 +16,10 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class MediaService {
 
-	private static final String TRANSCODE_OUTPUT_PREFIX_FORMAT = "artworks/%d/media/transcoded/";
-
 	private final ArtworkMediaRepository artworkMediaRepository;
 	private final ArtworkRepository artworkRepository;
 	private final S3PresignedUrlProvider s3PresignedUrlProvider;
-	private final MediaConvertClient mediaConvertClient;
+	private final TranscodeService transcodeService;
 
 	// infra/storage의 S3PresignedUrlProvider를 사용해 업로드용 presigned URL 발급
 	public PresignedUploadResponse issuePresignedUrl(Long artworkId, String fileName, String contentType) {
@@ -35,20 +32,22 @@ public class MediaService {
 		return new PresignedUploadResponse(uploadUrl, objectKey, mediaType.name());
 	}
 
-	// 업로드 완료 콜백 처리 — 동영상이면 infra/media의 MediaConvert 트랜스코딩 요청까지 트리거
-	public void completeUpload(Long artworkId, String objectKey) {
+	// 업로드 완료 콜백 처리 — 동영상이면 MediaConvert 트랜스코딩 요청까지 트리거
+	// mediaType은 presigned URL 발급 시 판별해 내려준 값을 클라이언트가 그대로 돌려보낸다.
+	// (완료 시점에는 contentType을 알 수 없어 objectKey만으로는 PHOTO/VIDEO를 구분할 수 없음 — #11)
+	public void completeUpload(Long artworkId, String objectKey, String mediaTypeValue) {
 		requireArtworkExists(artworkId);
 
-		MediaType mediaType = MediaType.fromContentTypeAndFileName(null, objectKey);
+		MediaType mediaType = MediaType.fromName(mediaTypeValue);
 		String objectUrl = s3PresignedUrlProvider.issuePublicUrl(objectKey);
 		int sortOrder = artworkMediaRepository.findByArtworkIdOrderBySortOrder(artworkId).size();
 
 		if (mediaType == MediaType.VIDEO) {
 			// 트랜스코딩 완료 전까지는 sourceUrl만 채우고 url은 비워둔다.
-			// (job 완료를 감지해서 url을 채우는 부분은 MediaConvertClient의 TODO 참고)
+			// (완료 감지는 TranscodeStatusPoller, MediaConvert 비활성화 시에는 원본을 바로 url로 사용)
 			ArtworkMedia media = new ArtworkMedia(artworkId, mediaType, null, objectUrl, sortOrder);
+			transcodeService.start(media, objectKey);
 			artworkMediaRepository.save(media);
-			mediaConvertClient.requestTranscode(objectKey, TRANSCODE_OUTPUT_PREFIX_FORMAT.formatted(artworkId));
 			return;
 		}
 
