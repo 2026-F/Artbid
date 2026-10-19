@@ -55,10 +55,6 @@ public class Artwork {
 	@Column(length = 500)
 	private String imageUrl;
 
-	// 작품 실제 크기 (cm) - 공간 배치 미리보기에서 실물 비율 계산용
-	private Double widthCm;
-	private Double heightCm;
-
 	@Enumerated(EnumType.STRING)
 	private ArtworkStatus status;
 
