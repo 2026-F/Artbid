@@ -1,6 +1,7 @@
 package com.artbid.member.controller;
 
 import com.artbid.member.domain.Member;
+import com.artbid.member.dto.MemberResponse;
 import com.artbid.member.service.MemberService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,7 +17,7 @@ public class MemberController {
 	private final MemberService memberService;
 
 	@GetMapping("/{id}")
-	public Member getMember(@PathVariable Long id) {
-		return memberService.getMember(id);
+	public MemberResponse getMember(@PathVariable Long id) {
+		return MemberResponse.from(memberService.getMember(id));
 	}
 }
