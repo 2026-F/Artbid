@@ -1,5 +1,6 @@
 package com.artbid.payment.controller;
 
+import com.artbid.payment.dto.TossConfirmRequest;
 import com.artbid.payment.service.PaymentService;
 import com.artbid.payment.domain.PaymentMethod;
 import com.artbid.payment.domain.PaymentStatus;
@@ -36,6 +37,12 @@ public class PaymentController {
 	@GetMapping("/payments/{id}")
 	public PaymentResponse get(@PathVariable("id") Long id, Principal principal) {
 		return paymentService.get(id, memberId(principal));
+	}
+
+	@PostMapping("/payments/{id}/confirm")
+	public PaymentResponse confirm(@PathVariable("id") Long id,
+                                   @Valid @RequestBody TossConfirmRequest request, Principal principal) {
+		return paymentService.confirmToss(id, memberId(principal), request.paymentKey(), request.orderId());
 	}
 
 	// Authentication 연동 계약: Principal.name에는 검증된 Member ID를 사용한다.

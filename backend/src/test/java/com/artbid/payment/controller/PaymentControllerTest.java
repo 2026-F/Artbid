@@ -78,4 +78,22 @@ class PaymentControllerTest {
 		mvc.perform(get("/api/payments/1").principal(() -> "4"))
 				.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
 	}
+
+	@Test
+	void TOSS_승인_요청을_서비스로_전달한다() throws Exception {
+		when(service.confirmToss(1L, 3L, "pk_abc", "payment_1")).thenReturn(response(PaymentStatus.PAID));
+		mvc.perform(post("/api/payments/1/confirm").principal(() -> "3")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"paymentKey\":\"pk_abc\",\"orderId\":\"payment_1\"}"))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PAID"));
+	}
+
+	@Test
+	void 인증_없이_승인_요청하면_401이다() throws Exception {
+		mvc.perform(post("/api/payments/1/confirm")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"paymentKey\":\"pk_abc\",\"orderId\":\"payment_1\"}"))
+				.andExpect(status().isUnauthorized());
+		verifyNoInteractions(service);
+	}
 }

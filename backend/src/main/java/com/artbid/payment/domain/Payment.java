@@ -24,7 +24,7 @@ public class Payment {
 	@Enumerated(EnumType.STRING)
 	private PaymentStatus status;
 
-	@Column(length = 100)
+	@Column(length = 200)
 	private String transactionId;
 	@Column(length = 500)
 	private String failureReason;
@@ -54,8 +54,8 @@ public class Payment {
 
 	/** 같은 거래의 성공 결과를 재수신하면 최초 결제 정보를 유지한다. */
 	public void markPaid(String transactionId, LocalDateTime paidAt) {
-		if (transactionId == null || transactionId.isBlank() || transactionId.length() > 100) {
-			throw new IllegalArgumentException("거래 ID는 1~100자의 공백이 아닌 값이어야 합니다.");
+		if (transactionId == null || transactionId.isBlank() || transactionId.length() > 200) {
+			throw new IllegalArgumentException("거래 ID는 1~200자의 공백이 아닌 값이어야 합니다.");
 		}
 		if (paidAt == null || paidAt.isBefore(requestedAt)) {
 			throw new IllegalArgumentException("결제 시각은 요청 시각보다 빠를 수 없습니다.");
