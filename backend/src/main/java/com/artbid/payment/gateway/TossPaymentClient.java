@@ -19,9 +19,9 @@ public class TossPaymentClient {
     private final RestClient restClient;
     private final String authorizationHeader;
 
-    public TossPaymentClient(@Value("${app.payment.toss.secret-key}") String secretKey) {
-        this.restClient = RestClient.create();
-        // 토스 인증 방식: "시크릿키:" 를 Base64 인코딩해서 Basic 인증 헤더로 전송
+    public TossPaymentClient(RestClient.Builder restClientBuilder,
+                             @Value("${app.payment.toss.secret-key}") String secretKey) {
+        this.restClient = restClientBuilder.build();   // RestClient.create() 대신
         String encoded = Base64.getEncoder().encodeToString((secretKey + ":").getBytes(StandardCharsets.UTF_8));
         this.authorizationHeader = "Basic " + encoded;
     }

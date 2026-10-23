@@ -54,7 +54,7 @@ public class Payment {
 
 	/** 같은 거래의 성공 결과를 재수신하면 최초 결제 정보를 유지한다. */
 	public void markPaid(String transactionId, LocalDateTime paidAt) {
-		if (transactionId == null || transactionId.isBlank() || transactionId.length() > 100) {
+		if (transactionId == null || transactionId.isBlank() || transactionId.length() > 200) {
 			throw new IllegalArgumentException("거래 ID는 1~200자의 공백이 아닌 값이어야 합니다.");
 		}
 		if (paidAt == null || paidAt.isBefore(requestedAt)) {
