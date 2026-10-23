@@ -146,7 +146,7 @@ class PaymentTest {
 	@Test
 	void 저장_길이를_넘는_결과는_상태_변경_전에_거절한다() {
 		Payment payment = request();
-		assertThatThrownBy(() -> payment.markPaid("x".repeat(101), PAID_AT))
+		assertThatThrownBy(() -> payment.markPaid("x".repeat(201), PAID_AT))
 				.isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(() -> payment.markFailed("x".repeat(501)))
 				.isInstanceOf(IllegalArgumentException.class);
