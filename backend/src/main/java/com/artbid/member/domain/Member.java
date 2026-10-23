@@ -34,4 +34,10 @@ public class Member {
 		member.role = role;
 		return member;
 	}
+
+	public void updateName(String name) {
+		if (name != null && !name.isBlank()) {
+			this.name = name.trim();
+		}
+	}
 }
