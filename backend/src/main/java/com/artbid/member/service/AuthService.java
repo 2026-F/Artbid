@@ -40,7 +40,7 @@ public class AuthService {
             throw new IllegalArgumentException("이메일 또는 비밀번호가 올바르지 않습니다.");
         }
 
-        return new LoginResponse(jwtTokenProvider.generateToken(member.getId()), member.getId());
+        return new LoginResponse(jwtTokenProvider.generateToken(member.getId(), member.getRole()), member.getId());
 
     }
 }
