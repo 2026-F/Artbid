@@ -14,6 +14,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.artbid.artwork.exception.ArtworkForbiddenException;
+import com.artbid.member.auth.JwtAuthenticationFilter;
+import com.artbid.member.domain.MemberRole;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.net.URI;
 import java.util.Set;
@@ -80,18 +84,26 @@ public class ArtworkController {
 		};
 	}
 
-	//작품 상태
-
 	@PostMapping("/{artworkId}/approve")
-	public ResponseEntity<Void> approve(@PathVariable Long artworkId){
+	public ResponseEntity<Void> approve(@PathVariable Long artworkId, HttpServletRequest request){
+		requireAdmin(request);
 		artworkService.approve(artworkId);
 		return ResponseEntity.noContent().build();
 	}
 
 	@PostMapping("/{artworkId}/reject")
-	public ResponseEntity<Void> reject(@PathVariable Long artworkId) {
+	public ResponseEntity<Void> reject(@PathVariable Long artworkId, HttpServletRequest request) {
+		requireAdmin(request);
 		artworkService.reject(artworkId);
 		return ResponseEntity.noContent().build();
+	}
+
+	// 로그인한 회원의 role이 ADMIN인지 확인.
+	private void requireAdmin(HttpServletRequest request) {
+		Object role = request.getAttribute(JwtAuthenticationFilter.ROLE_ATTRIBUTE);
+		if (role != MemberRole.ADMIN) {
+			throw new ArtworkForbiddenException();
+		}
 	}
 
 
