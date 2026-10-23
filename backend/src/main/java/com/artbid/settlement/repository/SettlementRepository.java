@@ -12,4 +12,6 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select s from Settlement s where s.id = :id")
 	Optional<Settlement> findByIdForUpdate(@Param("id") Long id);
+
+	Optional<Settlement> findByAuctionId(Long auctionId);
 }

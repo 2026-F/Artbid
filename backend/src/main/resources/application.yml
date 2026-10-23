@@ -45,6 +45,8 @@ app:
     reconnect:
       timeout: 2m        # 끊긴 뒤 이 시간 안에 재연결 못 하면 자동으로 방송 종료
       sweep-interval-ms: 30000
+  jwt:
+    secret: ${JWT_SECRET:local-dev-only-please-change-this-secret-before-prod-32}
 
 media:
   storage:

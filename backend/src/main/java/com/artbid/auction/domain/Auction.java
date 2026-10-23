@@ -60,7 +60,7 @@ public class Auction {
 				.build();
 	}
 
-private static void validateCreate(Long artworkId,
+	private static void validateCreate(Long artworkId,
 								  Long startPrice,
 								  Long minBidUnit,
 								  LocalDateTime previewStart,
@@ -122,5 +122,17 @@ private static void validateCreate(Long artworkId,
 			throw new InvalidBidException(
 					"입찰가가 너무 낮습니다. 현재가 " + currentPrice + "원, 최소 " + minValidPrice + "원 이상 입력하세요.");
 		}
+	}
+
+	public void close(LocalDateTime now){
+		if(status == AuctionStatus.CLOSED){
+			return;
+		}
+
+		if(now.isBefore(auctionEndAt)){
+			throw new IllegalArgumentException("아직 마감시간이 지나지 않았습니다.");
+		}
+
+		this.status = AuctionStatus.CLOSED;
 	}
 }

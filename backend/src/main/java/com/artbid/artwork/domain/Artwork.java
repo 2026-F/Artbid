@@ -183,4 +183,9 @@ public class Artwork {
 		}
 		return value;
 	}
+
+	//낙찰 처리
+	public void markSold() {
+		this.status = ArtworkStatus.SOLD;
+	}
 }
