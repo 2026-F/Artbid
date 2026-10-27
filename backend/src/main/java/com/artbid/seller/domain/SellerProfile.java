@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Getter
+@Table(uniqueConstraints = @UniqueConstraint(name = "uk_seller_profile_member_id", columnNames = "member_id"))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SellerProfile {
 
@@ -20,7 +21,7 @@ public class SellerProfile {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private Long memberId;
 
     @Column(nullable = false, length = 50)

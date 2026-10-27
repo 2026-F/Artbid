@@ -11,6 +11,7 @@ import com.artbid.seller.repository.SellerProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @Service
 @RequiredArgsConstructor
@@ -21,12 +22,33 @@ public class SellerProfileService {
     @Transactional
     public SellerProfile register(Long memberId, MemberRole role, SellerProfileRegisterRequest request) {
         requireConsignor(role);
+
+        // 1차 방어: 평소(동시 요청이 없는 경우)엔 여기서 바로 걸러져서 DB까지 안 가고 끝남
         if (sellerProfileRepository.existsByMemberId(memberId)) {
             throw new SellerProfileAlreadyExistsException(memberId);
         }
+
         SellerProfile profile = SellerProfile.register(memberId, request.shopName(), request.introduction(),
                 request.profileImageUrl());
-        return sellerProfileRepository.save(profile);
+
+        // 2차 방어(최종 방어선)
+        try {
+            return sellerProfileRepository.save(profile);
+        } catch (DataIntegrityViolationException e) {
+            if (isMemberIdUniqueViolation(e)) {
+                throw new SellerProfileAlreadyExistsException(memberId);
+            }
+            // memberId 중복이 아닌 다른 무결성 제약 위반이면 그대로 던져서
+            // 원래대로 500 처리되게 둔다 (원인을 숨기지 않기 위해)
+            throw e;
+        }
+    }
+
+    // DataIntegrityViolationException의 가장 근본 원인(실제 DB 드라이버가 준 메시지)에
+    // 우리가 지정한 제약조건 이름이 포함돼 있는지로 "memberId 중복이 맞는지" 판별.
+    private boolean isMemberIdUniqueViolation(DataIntegrityViolationException e) {
+        String message = e.getMostSpecificCause().getMessage();
+        return message != null && message.contains("uk_seller_profile_member_id");
     }
 
     public SellerProfile getByMemberId(Long memberId) {
