@@ -1,5 +1,7 @@
 # Settlement와 Payment 연결
 
+> 이 문서는 2026-09-24의 Mock PG 구현과 당시 검증 기록이다. 이후 인증([PR #65](https://github.com/2026-F/Artbid/pull/65)), 경매 마감 연결([PR #63](https://github.com/2026-F/Artbid/pull/63), [#64](https://github.com/2026-F/Artbid/pull/64)), Toss 연동([PR #71](https://github.com/2026-F/Artbid/pull/71))이 추가되었다. 아래의 미구현 설명과 Java 17 안내를 현재 상태로 해석하지 않는다. 현재 실행 방법은 [README](../README.md)를 확인하고 상세 동작은 코드와 대조한다. 아래 테스트 결과는 당시 결과로 보존한다.
+
 작성일: 2026-09-24 / 담당: 이혜령
 
 ## 전체 흐름
