@@ -13,7 +13,7 @@ public class OutboxPublisherScheduler {
 
     private final OutboxPublisherService outboxPublisherService;
 
-    // 1초마다 polling. 지금 트래픽 규모엔 충분하고, 너무 자주 돌면 DB에 부담이 되니 과하게 줄이지 않음.
+    // 1초마다 polling, 너무 자주 돌면 DB에 부담이 되니 과하게 줄이지 않음.
     @Scheduled(fixedDelay = 1000)
     public void poll() {
         outboxPublisherService.publishPendingEvents();
