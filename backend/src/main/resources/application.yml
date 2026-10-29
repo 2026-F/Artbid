@@ -1,6 +1,3 @@
-server:
-  port: 8080
-
 spring:
   application:
     name: artbid-backend
@@ -10,6 +7,8 @@ spring:
     username: artbid
     password: artbid
     driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 3000   # 기본 30초 -> 3초로 단축
 
   jpa:
     hibernate:
@@ -26,14 +25,60 @@ spring:
     consumer:
       group-id: artbid-backend
       auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
-# 트랙 3 (미디어·3D·AR) — 사진/동영상/3D 모델(glTF·GLB) 업로드
-# 로컬 개발 기본값: docker-compose의 MinIO(--profile media)를 가리킨다.
-#   docker compose --profile media up -d minio
-# 로 MinIO를 띄운 뒤 실행하면 앱 기동 시 버킷이 자동 생성되고 공개 읽기 정책이 걸린다.
+  # 모니터링 지표는 서비스 포트(8080)와 분리한 관리 포트(8081)로만 노출한다.
+  # Spring Security가 없어서 8080에 열면 배포 서버에서 누구나 지표를 볼 수 있기 때문.
+  # 8081은 docker-compose에서 루프백(127.0.0.1)으로만 바인딩해서, EC2 외부에서는 접근 불가.
+  management:
+    server:
+      port: ${MANAGEMENT_PORT:8081}
+    endpoints:
+      web:
+        exposure:
+          include: health, prometheus, metrics
+    metrics:
+      tags:
+        application: artbid-backend
+
+app:
+  settlement:
+    seller-commission-rate: 0.10 # 위탁자 지급 시 떼는 판매 수수료율. 정책 미정이라 임시값
+    batch:
+      enabled: true
+      cron: "0 */10 * * * *" # 미결제 만료 + 위탁자 지급 대기 생성 (초 분 시 일 월 요일)
+  auction:
+    live:
+      tick-interval-ms: 15000 # 구독 중인 경매에 잔여시간을 다시 맞춰 보내는 주기
+  cors:
+    allowed-origins: http://localhost:3000,  https://artbid-chi.vercel.app
+  aws:
+    region: ap-northeast-2
+  frontend:
+    base-url: http://localhost:3000
+  streaming:
+    token:
+      publish-duration: 180m
+      subscribe-duration: 10m
+      subscribe-rate-limit: 20
+      subscribe-rate-limit-window: 10m
+    reconnect:
+      timeout: 2m        # 끊긴 뒤 이 시간 안에 재연결 못 하면 자동으로 방송 종료
+      sweep-interval-ms: 30000
+  jwt:
+    secret: ${JWT_SECRET:local-dev-only-please-change-this-secret-before-prod-32}
+  certificate:
+    # 작품 보증서 HMAC 서명 키. 운영에서는 반드시 환경변수로 32바이트 이상 랜덤 값을 넣는다. 키가 바뀌면 기존 보증서 검증이 실패한다
+    hmac-secret: ${CERTIFICATE_HMAC_SECRET:local-dev-only-change-this-certificate-hmac-secret}
+    key-version: ${CERTIFICATE_KEY_VERSION:v1}
+  payment:
+    toss:
+      secret-key: ${TOSS_SECRET_KEY:test_sk_dummy_key_for_local_dev_only}
+
 media:
   storage:
     endpoint: http://localhost:9000
@@ -46,11 +91,11 @@ media:
     create-bucket-if-missing: true
 
   mediaconvert:
-    # AWS 계정/역할/큐/Job Template이 준비되기 전까지는 false로 두면 실제 API 호출 없이
-    # 로그만 남긴다 (동영상 업로드 자체는 이 값과 무관하게 정상 동작).
     enabled: false
-    # AWS 계정 준비되면 채우기:
-    # endpoint: https://xxxxxxxx.mediaconvert.ap-northeast-2.amazonaws.com
-    # role-arn: arn:aws:iam::<account-id>:role/ArtbidMediaConvertRole
-    # queue-arn: arn:aws:mediaconvert:ap-northeast-2:<account-id>:queues/Default
-    # job-template-name: artbid-video-transcode
+    # enabled=true로 켤 때 채울 값 (AWS 콘솔에서 확인)
+    # endpoint: https://xxxx.mediaconvert.ap-northeast-2.amazonaws.com
+    # role-arn: arn:aws:iam::123456789012:role/MediaConvertRole
+    # job-template-name: artbid-hls
+    # output-key-prefix: transcoded/   # Job Template Destination = s3://{bucket}/transcoded/
+    # output-suffix: .m3u8
+    # poll-interval-ms: 60000

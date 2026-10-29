@@ -7,6 +7,10 @@ import com.artbid.common.exception.InvalidBidException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.artbid.common.exception.BidTemporarilyUnavailableException;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -24,6 +28,8 @@ class BidServiceConcurrencyTest {
     private BidService bidService;
     @Autowired
     private AuctionRepository auctionRepository;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @Test
     void 동시_입찰_100건_중_낮은_가격이_현재가로_반영되면_안된다() throws InterruptedException {
@@ -83,5 +89,44 @@ class BidServiceConcurrencyTest {
         // DB의 최종 현재가가 실제로 받아들여졌던 최고가보다 낮아지는 현상이 생긴다.
         // 이게 같다는 건 "낮은 가격이 통과한 사례 0건"이라는 뜻.
         assertThat(finalPriceInDb).isEqualTo(maxAcceptedPrice);
+    }
+    @Test
+    void 락_대기가_타임아웃을_넘기면_BidTemporarilyUnavailableException이_발생한다() throws InterruptedException {
+        Auction auction = Auction.builder()
+                .artworkId(1L)
+                .startPrice(10_000L)
+                .currentPrice(10_000L)
+                .minBidUnit(1_000L)
+                .previewStart(LocalDateTime.now().minusDays(1))
+                .previewEnd(LocalDateTime.now())
+                .auctionEndAt(LocalDateTime.now().plusMinutes(10))
+                .status(AuctionStatus.ONGOING)
+                .build();
+        auction = auctionRepository.save(auction);
+        Long auctionId = auction.getId();
+
+        CountDownLatch lockAcquired = new CountDownLatch(1);
+        CountDownLatch releaseLock = new CountDownLatch(1);
+
+        // 스레드 A: 락을 잡고 5초간 안 놓음 (타임아웃 3초보다 길게)
+        Thread holder = new Thread(() -> transactionTemplate.execute(status -> {
+            auctionRepository.findByIdForUpdate(auctionId);
+            lockAcquired.countDown();
+            try {
+                releaseLock.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return null;
+        }));
+        holder.start();
+        lockAcquired.await(); // A가 락을 확실히 잡을 때까지 대기
+
+        // 스레드 B: A가 락을 들고 있는 동안 입찰 시도 -> 3초 안에 못 받고 예외
+        assertThatThrownBy(() -> bidService.submitBid(auctionId, 999L, 20_000L))
+                .isInstanceOf(BidTemporarilyUnavailableException.class);
+
+        releaseLock.countDown();
+        holder.join();
     }
 }

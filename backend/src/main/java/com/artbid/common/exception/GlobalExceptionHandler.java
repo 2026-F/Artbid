@@ -1,6 +1,8 @@
 package com.artbid.common.exception;
 
+import com.artbid.artwork.exception.ArtworkNotEditableException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -22,5 +24,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<String> handleException(Exception e) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage());
+    }
+
+    @ExceptionHandler(BidTemporarilyUnavailableException.class)
+    public ResponseEntity<String> handleBidTemporarilyUnavailable(BidTemporarilyUnavailableException e){
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(e.getMessage());
+    }
+
+    @ExceptionHandler(ArtworkNotEditableException.class)
+    public ResponseEntity<String> handleArtworkNotEditable(ArtworkNotEditableException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
     }
 }
