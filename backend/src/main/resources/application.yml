@@ -30,6 +30,11 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 app:
+  settlement:
+    seller-commission-rate: 0.10 # 위탁자 지급 시 떼는 판매 수수료율. 정책 미정이라 임시값
+    batch:
+      enabled: true
+      cron: "0 */10 * * * *" # 미결제 만료 + 위탁자 지급 대기 생성 (초 분 시 일 월 요일)
   cors:
     allowed-origins: http://localhost:3000,  https://artbid-chi.vercel.app
   aws:
