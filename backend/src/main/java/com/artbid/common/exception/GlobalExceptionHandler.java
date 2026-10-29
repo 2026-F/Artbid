@@ -1,6 +1,7 @@
 package com.artbid.common.exception;
 
 import com.artbid.artwork.exception.ArtworkNotEditableException;
+import com.artbid.artwork.exception.ArtworkForbiddenException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -34,5 +35,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ArtworkNotEditableException.class)
     public ResponseEntity<String> handleArtworkNotEditable(ArtworkNotEditableException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
+    }
+
+    // 어드민 권한이 필요한 작업(작품 승인/반려, 경매 상태 변경)을 일반 사용자가 호출했을 때.
+    // 이 핸들러가 없으면 기본 Exception 핸들러로 떨어져서 403 대신 500이 나간다.
+    @ExceptionHandler({ArtworkForbiddenException.class, AuctionForbiddenException.class})
+    public ResponseEntity<String> handleForbidden(RuntimeException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
     }
 }

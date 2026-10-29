@@ -98,6 +98,14 @@ public class ArtworkController {
 		return ResponseEntity.noContent().build();
 	}
 
+	// 이미 공개된(PREVIEW/IN_AUCTION) 작품을 다시 비공개로 내린다. (어드민 "경매 상태 관리" 화면의 "작품 내리기" 버튼)
+	@PostMapping("/{artworkId}/unpublish")
+	public ResponseEntity<Void> unpublish(@PathVariable Long artworkId, HttpServletRequest request) {
+		requireAdmin(request);
+		artworkService.unpublish(artworkId);
+		return ResponseEntity.noContent().build();
+	}
+
 	// 로그인한 회원의 role이 ADMIN인지 확인.
 	private void requireAdmin(HttpServletRequest request) {
 		Object role = request.getAttribute(JwtAuthenticationFilter.ROLE_ATTRIBUTE);
