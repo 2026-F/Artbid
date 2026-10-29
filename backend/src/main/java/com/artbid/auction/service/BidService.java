@@ -2,6 +2,9 @@ package com.artbid.auction.service;
 
 import com.artbid.auction.domain.Auction;
 import com.artbid.auction.domain.Bid;
+import com.artbid.auction.live.AuctionLiveChangedEvent;
+import com.artbid.auction.live.AuctionLiveReason;
+import com.artbid.auction.live.AuctionLiveState;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.auction.repository.BidRepository;
 import com.artbid.common.exception.BidTemporarilyUnavailableException;
@@ -10,6 +13,7 @@ import com.artbid.infra.realtime.AuctionSseRegistry;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -30,6 +34,7 @@ public class BidService {
 	private final AuctionRepository auctionRepository;
 	private final BidRepository bidRepository;
 	private final AuctionSseRegistry sseRegistry;
+	private final ApplicationEventPublisher eventPublisher;
 
 	@Transactional
 	public BidResult submitBid(Long auctionId, Long bidderId, Long price) {
@@ -41,7 +46,8 @@ public class BidService {
 		bidRepository.save(new Bid(auctionId, bidderId, price, now));
 
 		BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), extended);
-		broadcastAfterCommit(auctionId, result);
+		broadcastAfterCommit(auctionId, result); // 기존 화면 호환용 이름 없는 이벤트. 유지한다.
+		publishLiveChanged(auction, now, AuctionLiveReason.BID, extended);
 		return result;
 	}
 
@@ -68,7 +74,8 @@ public class BidService {
 		auction.aftercancelPrice(revertedPrice);
 
 		BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), false);
-		broadcastAfterCommit(auctionId, result);
+		broadcastAfterCommit(auctionId, result); // 기존 화면 호환용 이름 없는 이벤트. 유지한다.
+		publishLiveChanged(auction, now, AuctionLiveReason.BID_CANCELED, false);
 		return result;
 	}
 
@@ -88,6 +95,12 @@ public class BidService {
 		} catch (PessimisticLockingFailureException e) {
 			throw new BidTemporarilyUnavailableException();
 		}
+	}
+
+	// 실시간 상태 캐시 갱신과 auction-live 이벤트 전송은 AuctionLiveEventListener가 커밋 후에 처리한다.
+	// now는 경매 행 락을 잡은 뒤의 시각이라 같은 경매 안에서는 커밋 순서와 같다(캐시의 오래된 변경 판별에 사용).
+	private void publishLiveChanged(Auction auction, LocalDateTime now, AuctionLiveReason reason, boolean extended) {
+		eventPublisher.publishEvent(new AuctionLiveChangedEvent(AuctionLiveState.changed(auction, now), reason, extended));
 	}
 
 	// 트랜잭션이 실제로 커밋된 뒤에만 구독자에게 알림 (롤백되면 알림도 안 나가야 하므로)
