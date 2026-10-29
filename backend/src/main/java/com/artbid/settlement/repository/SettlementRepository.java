@@ -26,4 +26,8 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
 	@Query("select s.id from Settlement s where s.paymentStatus = :status"
 			+ " and not exists (select p.id from SellerPayout p where p.settlementId = s.id) order by s.id")
 	List<Long> findIdsByStatusWithoutPayout(@Param("status") PaymentStatus status);
+
+	List<Settlement> findByWinnerIdOrderByIdDesc(Long winnerId);
+
+	List<Settlement> findByWinnerIdAndPaymentStatusOrderByIdDesc(Long winnerId, PaymentStatus paymentStatus);
 }

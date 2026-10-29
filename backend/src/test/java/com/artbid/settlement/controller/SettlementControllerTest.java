@@ -2,6 +2,7 @@ package com.artbid.settlement.controller;
 
 import com.artbid.member.auth.JwtAuthenticationFilter;
 import com.artbid.member.domain.MemberRole;
+import com.artbid.settlement.domain.PaymentStatus;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.exception.SettlementAccessDeniedException;
 import com.artbid.settlement.exception.SettlementNotFoundException;
@@ -21,6 +22,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -96,5 +98,28 @@ class SettlementControllerTest {
 
 		mockMvc.perform(get("/api/settlements/99").principal(winner))
 				.andExpect(status().isNotFound());
+	}
+
+	@Test
+	void 내_정산_목록을_조회한다() throws Exception {
+		when(settlementService.getMySettlements(2L, PaymentStatus.PENDING)).thenReturn(List.of(settlement()));
+
+		mockMvc.perform(get("/api/settlements/me").param("status", "PENDING").principal(winner))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[0].id").value(1))
+				.andExpect(jsonPath("$[0].paymentStatus").value("PENDING"));
+	}
+
+	@Test
+	void 내_정산_목록은_로그인이_필요하다() throws Exception {
+		mockMvc.perform(get("/api/settlements/me"))
+				.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void 잘못된_상태값이면_400() throws Exception {
+		mockMvc.perform(get("/api/settlements/me").param("status", "WRONG").principal(winner))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 	}
 }

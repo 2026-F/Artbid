@@ -3,6 +3,7 @@ package com.artbid.settlement.service;
 import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.member.domain.MemberRole;
+import com.artbid.settlement.domain.PaymentStatus;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.exception.SettlementAccessDeniedException;
 import com.artbid.settlement.exception.SettlementNotFoundException;
@@ -10,6 +11,7 @@ import com.artbid.settlement.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Objects;
 
 @Service
@@ -32,6 +34,13 @@ public class SettlementService {
 				.orElseThrow(SettlementNotFoundException::new);
 		checkReadable(settlement, memberId, role);
 		return settlement;
+	}
+
+	// 내가 낙찰받아 결제해야 하는(또는 결제한) 정산 목록. 최신순. status가 있으면 그 상태만.
+	public List<Settlement> getMySettlements(Long memberId, PaymentStatus status) {
+		return status == null
+				? settlementRepository.findByWinnerIdOrderByIdDesc(memberId)
+				: settlementRepository.findByWinnerIdAndPaymentStatusOrderByIdDesc(memberId, status);
 	}
 
 	// 낙찰자 본인, 해당 작품의 위탁자, 관리자만 볼 수 있다. 역할만으로는 허용하지 않고 실제 당사자인지 확인한다.

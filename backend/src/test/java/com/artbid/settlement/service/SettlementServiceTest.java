@@ -5,6 +5,7 @@ import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.domain.Auction;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.member.domain.MemberRole;
+import com.artbid.settlement.domain.PaymentStatus;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.exception.SettlementAccessDeniedException;
 import com.artbid.settlement.exception.SettlementNotFoundException;
@@ -16,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -91,5 +93,20 @@ class SettlementServiceTest {
 
 		assertThatThrownBy(() -> service.getSettlement(1L, WINNER_ID, MemberRole.BIDDER))
 				.isInstanceOf(SettlementNotFoundException.class);
+	}
+
+	@Test
+	void 내_정산_목록은_상태를_지정하지_않으면_전부_돌려준다() {
+		when(settlementRepository.findByWinnerIdOrderByIdDesc(WINNER_ID)).thenReturn(List.of(settlement));
+
+		assertThat(service.getMySettlements(WINNER_ID, null)).containsExactly(settlement);
+	}
+
+	@Test
+	void 내_정산_목록을_상태로_거른다() {
+		when(settlementRepository.findByWinnerIdAndPaymentStatusOrderByIdDesc(WINNER_ID, PaymentStatus.PENDING))
+				.thenReturn(List.of(settlement));
+
+		assertThat(service.getMySettlements(WINNER_ID, PaymentStatus.PENDING)).containsExactly(settlement);
 	}
 }

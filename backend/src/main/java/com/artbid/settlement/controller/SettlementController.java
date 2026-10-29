@@ -2,6 +2,7 @@ package com.artbid.settlement.controller;
 
 import com.artbid.member.auth.JwtAuthenticationFilter;
 import com.artbid.member.domain.MemberRole;
+import com.artbid.settlement.domain.PaymentStatus;
 import com.artbid.settlement.dto.SettlementResponse;
 import com.artbid.settlement.exception.SettlementAuthRequiredException;
 import com.artbid.settlement.service.SettlementService;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/settlements")
@@ -21,6 +23,15 @@ import java.security.Principal;
 public class SettlementController {
 
 	private final SettlementService settlementService;
+
+	// 내 정산 내역 (낙찰자 기준). ?status=PENDING|PAID|FAILED 로 거를 수 있다. FAILED + expiredAt은 결제 기한 만료.
+	@GetMapping("/me")
+	public List<SettlementResponse> getMySettlements(@RequestParam(required = false) PaymentStatus status,
+			Principal principal) {
+		return settlementService.getMySettlements(memberId(principal), status).stream()
+				.map(SettlementResponse::from)
+				.toList();
+	}
 
 	@GetMapping("/{id}")
 	public SettlementResponse getSettlement(@PathVariable Long id, Principal principal, HttpServletRequest request) {
