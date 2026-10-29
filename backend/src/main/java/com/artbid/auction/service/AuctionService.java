@@ -1,10 +1,12 @@
 package com.artbid.auction.service;
 
 import com.artbid.auction.domain.Auction;
+import com.artbid.auction.domain.AuctionStatus;
 import com.artbid.auction.dto.AuctionDetailResponse;
 import com.artbid.auction.repository.AuctionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.artwork.domain.Artwork;
 
@@ -57,6 +59,20 @@ public class AuctionService {
 				artwork.getTitle(),
 				artwork.getImageUrl()
 		);
+	}
+
+	// 관리자가 경매 상태를 직접 바꾼다 (어드민 전용, AuctionController에서 권한 확인 후 호출).
+	// 새 상태가 ONGOING이면, 연결된 작품도 "경매 중"으로 같이 맞춰준다.
+	@Transactional
+	public void updateStatus(Long auctionId, AuctionStatus status) {
+		Auction auction = auctionRepository.findById(auctionId)
+				.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + auctionId));
+
+		auction.overrideStatus(status);
+
+		if (status == AuctionStatus.ONGOING) {
+			artworkRepository.findById(auction.getArtworkId()).ifPresent(Artwork::markInAuction);
+		}
 	}
 
 }

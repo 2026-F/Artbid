@@ -188,4 +188,12 @@ public class Artwork {
 	public void markSold() {
 		this.status = ArtworkStatus.SOLD;
 	}
+
+	// 경매가 실제로 열렸을 때(관리자가 경매 상태를 ONGOING으로 바꿀 때) 호출.
+	// PREVIEW 상태에서만 "경매 중"으로 넘어갈 수 있다.
+	public void markInAuction() {
+		if (status == ArtworkStatus.PREVIEW) {
+			this.status = ArtworkStatus.IN_AUCTION;
+		}
+	}
 }

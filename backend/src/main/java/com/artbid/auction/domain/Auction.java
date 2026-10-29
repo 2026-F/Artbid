@@ -135,4 +135,14 @@ public class Auction {
 
 		this.status = AuctionStatus.CLOSED;
 	}
+
+	// 관리자가 경매 상태를 직접 지정할 때 쓴다.
+	// 지금은 PREVIEW를 시간에 맞춰 자동으로 ONGOING으로 바꿔주는 스케줄러가 없어서,
+	// 관리자가 수동으로 "열어줘야" 실제로 입찰(applyBid)이 가능해진다 — 그 수동 전환용 메서드.
+	public void overrideStatus(AuctionStatus status) {
+		if (status == null) {
+			throw new IllegalArgumentException("상태는 필수입니다.");
+		}
+		this.status = status;
+	}
 }
