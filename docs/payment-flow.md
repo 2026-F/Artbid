@@ -95,3 +95,13 @@ DB 재조회 시 시각이 달라지는 문제를 확인해 요청/결제 시각
 
 기존 Settlement 조회 API의 Authentication/Response 정리는 이번 Payment API 변경 범위 밖임.
 따라서 서비스 전체의 권한 검증이 완료된 상태는 아님.
+
+## 후속 변경 (2026-10-29)
+
+위 남은 작업 중 일부를 정산 배치 작업에서 반영함. 상세는 [작업 기록](prompts/2026-10-29-settlement-batch.md) 참고.
+
+- 미결제 후속 처리: 결제 기한이 지난 PENDING 정산을 배치가 FAILED로 바꾸고 expiredAt을 기록함. REQUESTED 결제가 있으면 보류함
+- 판매자 Settlement Batch: 결제 완료 정산마다 위탁자 지급 대기(SellerPayout, READY)를 만듦. 실제 송금과 지급 시점은 미정
+- 기존 Settlement 조회 API: 응답을 DTO로 바꾸고 낙찰자, 해당 작품 위탁자, 관리자만 조회하도록 변경함
+- 환불은 여전히 별도 범위임
+
