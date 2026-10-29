@@ -10,8 +10,10 @@ import com.artbid.auction.domain.Bid;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.auction.repository.BidRepository;
 import com.artbid.infra.realtime.AuctionSseRegistry;
+import com.artbid.infra.outbox.OutboxEventRepository;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.repository.SettlementRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,6 +47,12 @@ class AuctionClosingServiceTest {
 	private SettlementRepository settlementRepository;
 	@Mock
 	private AuctionSseRegistry sseRegistry;
+	@Mock
+	private OutboxEventRepository outboxEventRepository;
+
+	// ObjectMapper는 굳이 mock으로 안 만들고 실제 객체를 그대로 사용.
+	// writeValueAsString()이 진짜로 동작해야 OutboxEvent에 들어갈 payload가 null이 아니게 됨.
+	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private AuctionClosingService auctionClosingService;
 
@@ -55,7 +63,8 @@ class AuctionClosingServiceTest {
 	@BeforeEach
 	void setUp() {
 		auctionClosingService = new AuctionClosingService(
-				auctionRepository, artworkRepository, bidRepository, settlementRepository, sseRegistry);
+				auctionRepository, artworkRepository, bidRepository, settlementRepository, sseRegistry,
+				outboxEventRepository, objectMapper);
 	}
 
 	private Auction auctionWithCurrentPrice(Long currentPrice, LocalDateTime auctionEndAt) {
