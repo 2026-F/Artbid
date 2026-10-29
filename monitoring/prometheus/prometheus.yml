@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 5s       # 부하테스트는 짧게 끝나므로 기본 1분보다 촘촘하게 수집
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: artbid-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          # 로컬에서 ./gradlew bootRun으로 띄운 백엔드
+          - host.docker.internal:8081
+          # docker compose로 띄운 backend 컨테이너 (같은 네트워크 안에서만 접근)
+          - backend:8081
