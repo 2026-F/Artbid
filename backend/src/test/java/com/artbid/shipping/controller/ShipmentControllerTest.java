@@ -136,4 +136,29 @@ class ShipmentControllerTest {
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
 	}
+
+	@Test
+	void 운송장을_등록한다() throws Exception {
+		Shipment shipped = shipment();
+		shipped.registerTracking("CJ대한통운", "123456789012", LocalDateTime.of(2026, 10, 30, 9, 0));
+		when(shipmentService.registerTracking(1L, 3L, MemberRole.CONSIGNOR, "CJ대한통운", "123456789012")).thenReturn(shipped);
+
+		mockMvc.perform(put("/api/settlements/1/shipment/tracking").principal(() -> "3")
+						.requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.CONSIGNOR)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"carrier\":\"CJ대한통운\",\"trackingNumber\":\"123456789012\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("SHIPPED"))
+				.andExpect(jsonPath("$.carrier").value("CJ대한통운"))
+				.andExpect(jsonPath("$.trackingNumber").value("123456789012"));
+	}
+
+	@Test
+	void 운송장_번호_형식이_틀리면_400() throws Exception {
+		mockMvc.perform(put("/api/settlements/1/shipment/tracking").principal(() -> "3")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"carrier\":\"CJ대한통운\",\"trackingNumber\":\"12 34\"}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("trackingNumber 값을 확인해주세요."));
+	}
 }

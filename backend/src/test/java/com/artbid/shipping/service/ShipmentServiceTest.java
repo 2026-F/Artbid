@@ -190,4 +190,63 @@ class ShipmentServiceTest {
 
 		assertError(() -> service.get(SETTLEMENT_ID, WINNER_ID, MemberRole.BIDDER), HttpStatus.NOT_FOUND, "SHIPMENT_NOT_FOUND");
 	}
+
+	Settlement paidSettlement() {
+		Settlement settlement = settlement();
+		settlement.markPaid();
+		return settlement;
+	}
+
+	@Test
+	void 위탁자가_운송장을_등록하면_발송_완료가_된다() {
+		Shipment shipment = Shipment.create(SETTLEMENT_ID, address(null), LocalDateTime.now());
+		when(settlementRepository.findByIdForUpdate(SETTLEMENT_ID)).thenReturn(Optional.of(paidSettlement()));
+		consignorIs(CONSIGNOR_ID);
+		when(shipmentRepository.findBySettlementId(SETTLEMENT_ID)).thenReturn(Optional.of(shipment));
+
+		service.registerTracking(SETTLEMENT_ID, CONSIGNOR_ID, MemberRole.CONSIGNOR, "CJ대한통운", "123456789012");
+
+		assertThat(shipment.getStatus()).isEqualTo(ShipmentStatus.SHIPPED);
+		assertThat(shipment.getTrackingNumber()).isEqualTo("123456789012");
+		assertThat(shipment.getShippedAt()).isNotNull();
+	}
+
+	@Test
+	void 관리자도_운송장을_등록할_수_있다() {
+		Shipment shipment = Shipment.create(SETTLEMENT_ID, address(null), LocalDateTime.now());
+		when(settlementRepository.findByIdForUpdate(SETTLEMENT_ID)).thenReturn(Optional.of(paidSettlement()));
+		when(shipmentRepository.findBySettlementId(SETTLEMENT_ID)).thenReturn(Optional.of(shipment));
+
+		service.registerTracking(SETTLEMENT_ID, STRANGER_ID, MemberRole.ADMIN, "우체국택배", "6012345678901");
+
+		assertThat(shipment.getStatus()).isEqualTo(ShipmentStatus.SHIPPED);
+	}
+
+	@Test
+	void 낙찰자는_운송장을_등록할_수_없다() {
+		when(settlementRepository.findByIdForUpdate(SETTLEMENT_ID)).thenReturn(Optional.of(paidSettlement()));
+		consignorIs(CONSIGNOR_ID);
+
+		assertError(() -> service.registerTracking(SETTLEMENT_ID, WINNER_ID, MemberRole.BIDDER, "CJ대한통운", "123456789012"),
+				HttpStatus.FORBIDDEN, "SHIPMENT_FORBIDDEN");
+	}
+
+	@Test
+	void 결제_전에는_운송장을_등록할_수_없다() {
+		when(settlementRepository.findByIdForUpdate(SETTLEMENT_ID)).thenReturn(Optional.of(settlement()));
+		consignorIs(CONSIGNOR_ID);
+
+		assertError(() -> service.registerTracking(SETTLEMENT_ID, CONSIGNOR_ID, MemberRole.CONSIGNOR, "CJ대한통운", "123456789012"),
+				HttpStatus.CONFLICT, "SETTLEMENT_NOT_PAID");
+	}
+
+	@Test
+	void 배송지가_없으면_운송장을_등록할_수_없다() {
+		when(settlementRepository.findByIdForUpdate(SETTLEMENT_ID)).thenReturn(Optional.of(paidSettlement()));
+		consignorIs(CONSIGNOR_ID);
+		when(shipmentRepository.findBySettlementId(SETTLEMENT_ID)).thenReturn(Optional.empty());
+
+		assertError(() -> service.registerTracking(SETTLEMENT_ID, CONSIGNOR_ID, MemberRole.CONSIGNOR, "CJ대한통운", "123456789012"),
+				HttpStatus.CONFLICT, "SHIPMENT_ADDRESS_REQUIRED");
+	}
 }

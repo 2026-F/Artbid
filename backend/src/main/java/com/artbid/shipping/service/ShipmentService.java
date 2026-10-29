@@ -62,6 +62,31 @@ public class ShipmentService {
 		return shipment;
 	}
 
+	/**
+	 * 운송장 등록. 해당 작품 위탁자 본인이나 관리자만 할 수 있다.
+	 * 결제가 끝난(PAID) 정산이고 배송지가 입력돼 있어야 한다. 이미 등록했으면 운송장 정보만 고친다.
+	 */
+	@Transactional
+	public Shipment registerTracking(Long settlementId, Long memberId, MemberRole role, String carrier, String trackingNumber) {
+		requireLogin(memberId);
+		Settlement settlement = settlementRepository.findByIdForUpdate(settlementId)
+				.orElseThrow(ShipmentService::settlementNotFound);
+		if (role != MemberRole.ADMIN && !isConsignor(settlement, memberId)) {
+			throw new ShipmentException(FORBIDDEN, "SHIPMENT_FORBIDDEN", "작품 위탁자나 관리자만 운송장을 등록할 수 있습니다.");
+		}
+		if (settlement.getPaymentStatus() != PaymentStatus.PAID) {
+			throw new ShipmentException(CONFLICT, "SETTLEMENT_NOT_PAID", "결제가 완료된 뒤에 발송할 수 있습니다.");
+		}
+		Shipment shipment = shipmentRepository.findBySettlementId(settlementId)
+				.orElseThrow(() -> new ShipmentException(CONFLICT, "SHIPMENT_ADDRESS_REQUIRED", "낙찰자가 아직 배송지를 입력하지 않았습니다."));
+		try {
+			shipment.registerTracking(carrier, trackingNumber, now());
+		} catch (IllegalStateException e) {
+			throw new ShipmentException(CONFLICT, "SHIPMENT_ALREADY_DELIVERED", e.getMessage());
+		}
+		return shipment;
+	}
+
 	/** 배송 정보 조회. 낙찰자 본인, 해당 작품 위탁자, 관리자만. */
 	public Shipment get(Long settlementId, Long memberId, MemberRole role) {
 		requireLogin(memberId);

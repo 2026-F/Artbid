@@ -4,6 +4,7 @@ import com.artbid.member.auth.JwtAuthenticationFilter;
 import com.artbid.member.domain.MemberRole;
 import com.artbid.shipping.dto.ShipmentResponse;
 import com.artbid.shipping.dto.ShippingAddressRequest;
+import com.artbid.shipping.dto.TrackingRequest;
 import com.artbid.shipping.service.ShipmentService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -36,6 +37,14 @@ public class ShipmentController {
 	public ShipmentResponse saveAddress(@PathVariable Long settlementId,
 			@Valid @RequestBody ShippingAddressRequest request, Principal principal) {
 		return ShipmentResponse.from(shipmentService.saveAddress(settlementId, memberId(principal), request.toAddress()));
+	}
+
+	// 운송장 등록·수정 (해당 작품 위탁자, 관리자). 결제 완료 + 배송지 입력 후
+	@PutMapping("/tracking")
+	public ShipmentResponse registerTracking(@PathVariable Long settlementId, @Valid @RequestBody TrackingRequest request,
+			Principal principal, HttpServletRequest httpRequest) {
+		return ShipmentResponse.from(shipmentService.registerTracking(settlementId, memberId(principal), role(httpRequest),
+				request.carrier(), request.trackingNumber()));
 	}
 
 	static MemberRole role(HttpServletRequest request) {
