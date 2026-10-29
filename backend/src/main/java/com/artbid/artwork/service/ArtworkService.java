@@ -137,4 +137,12 @@ public class ArtworkService {
 				.orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다. " + artworkId));
 		artwork.reject();
 	}
+
+	// 이미 공개된(PREVIEW/IN_AUCTION) 작품을 어드민이 다시 내릴 때. (어드민 "경매 상태 관리" 화면)
+	@Transactional
+	public void unpublish(Long artworkId){
+		Artwork artwork = artworkRepository.findById(artworkId)
+				.orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다. " + artworkId));
+		artwork.unpublish();
+	}
 }

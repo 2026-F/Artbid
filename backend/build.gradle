@@ -25,8 +25,9 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	// 부하테스트/운영 모니터링: /actuator/prometheus로 HTTP, JVM, HikariCP 지표 노출
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
-	implementation 'io.micrometer:micrometer-registry-prometheus'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 	implementation 'org.springframework.kafka:spring-kafka'
 
 	// 미디어 업로드(S3)·동영상 트랜스코딩(MediaConvert)·라이브 스트리밍(IVS) 연동
