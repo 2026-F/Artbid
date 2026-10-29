@@ -1,0 +1,14 @@
+# 부하테스트 전용 프로필. 실행: ./gradlew bootRun --args='--spring.profiles.active=loadtest'
+# 측정값을 왜곡하는 설정만 끄고, 나머지는 기본 application.yml을 그대로 쓴다.
+spring:
+  jpa:
+    show-sql: false   # 요청마다 SQL을 콘솔에 찍으면 응답시간이 느려져 결과가 왜곡된다
+
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true   # tomcat_threads_busy_threads 등 톰캣 스레드 지표 노출
+
+logging:
+  level:
+    org.hibernate.SQL: warn
