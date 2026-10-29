@@ -1,5 +1,7 @@
 package com.artbid.payment.service;
 
+import com.artbid.notification.domain.NotificationType;
+import com.artbid.notification.service.NotificationRequestedEvent;
 import com.artbid.payment.domain.Payment;
 import com.artbid.payment.domain.PaymentMethod;
 import com.artbid.payment.domain.PaymentStatus;
@@ -10,6 +12,7 @@ import com.artbid.payment.repository.PaymentRepository;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
@@ -22,6 +25,7 @@ import static org.springframework.http.HttpStatus.*;
 public class PaymentTransactionService {
 	private final SettlementRepository settlementRepository;
 	private final PaymentRepository paymentRepository;
+	private final ApplicationEventPublisher eventPublisher;
 
 	@Transactional
 	public PaymentResponse start(Long settlementId, Long memberId, PaymentMethod method) {
@@ -53,8 +57,12 @@ public class PaymentTransactionService {
 			throw new PaymentException(CONFLICT, "PAYMENT_SETTLEMENT_MISMATCH", "결제와 정산이 일치하지 않습니다.");
 		}
 		if (result.approved()) {
+			boolean firstPaid = settlement.getPaymentStatus() != com.artbid.settlement.domain.PaymentStatus.PAID;
 			payment.markPaid(result.transactionId(), databaseTime());
 			settlement.markPaid();
+			if (firstPaid) {
+				notifyPaid(settlement);
+			}
 		} else {
 			payment.markFailed(result.failureReason());
 			// 개별 시도만 실패 처리한다. Settlement는 재시도 가능한 PENDING을 유지한다.
@@ -69,6 +77,16 @@ public class PaymentTransactionService {
 				.orElseThrow(() -> new PaymentException(NOT_FOUND, "NOT_FOUND", "정산 내역이 없습니다."));
 		checkOwner(settlement, memberId);
 		return PaymentResponse.from(payment);
+	}
+
+	// 결제 완료 알림. 이 트랜잭션이 커밋된 뒤에 만들어지고, 실패해도 결제에는 영향이 없다(NotificationEventListener).
+	private void notifyPaid(Settlement settlement) {
+		eventPublisher.publishEvent(new NotificationRequestedEvent(
+				settlement.getWinnerId(),
+				NotificationType.PAYMENT_COMPLETED,
+				"결제가 완료되었습니다",
+				"낙찰 작품 결제가 완료되었습니다. 배송지를 입력해 주세요.",
+				"/mypage"));
 	}
 
 	private Payment findPayment(Long paymentId) {
