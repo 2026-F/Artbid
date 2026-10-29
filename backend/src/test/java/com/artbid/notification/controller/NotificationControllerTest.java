@@ -1,5 +1,6 @@
 package com.artbid.notification.controller;
 
+import com.artbid.notification.domain.Notification;
 import com.artbid.notification.domain.NotificationType;
 import com.artbid.notification.dto.NotificationPageResponse;
 import com.artbid.notification.dto.NotificationResponse;
@@ -24,6 +25,7 @@ import java.util.List;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -87,5 +89,38 @@ class NotificationControllerTest {
 		mockMvc.perform(get("/api/notifications").param("page", "abc").principal(member))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+	}
+
+	@Test
+	void 알림을_읽음_처리한다() throws Exception {
+		Notification notification = Notification.create(1L, NotificationType.PAYMENT_COMPLETED, "결제 완료", null, "/mypage",
+				LocalDateTime.of(2026, 10, 29, 12, 0));
+		org.springframework.test.util.ReflectionTestUtils.setField(notification, "id", 5L);
+		notification.markRead(LocalDateTime.of(2026, 10, 29, 12, 5));
+		when(notificationService.markRead(1L, 5L)).thenReturn(notification);
+
+		mockMvc.perform(patch("/api/notifications/5/read").principal(member))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.id").value(5))
+				.andExpect(jsonPath("$.read").value(true));
+	}
+
+	@Test
+	void 다른_회원의_알림이면_404() throws Exception {
+		when(notificationService.markRead(1L, 5L))
+				.thenThrow(new NotificationException(HttpStatus.NOT_FOUND, "NOTIFICATION_NOT_FOUND", "알림을 찾을 수 없습니다."));
+
+		mockMvc.perform(patch("/api/notifications/5/read").principal(member))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("NOTIFICATION_NOT_FOUND"));
+	}
+
+	@Test
+	void 모두_읽음_처리한다() throws Exception {
+		when(notificationService.markAllRead(1L)).thenReturn(3);
+
+		mockMvc.perform(patch("/api/notifications/read-all").principal(member))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.updatedCount").value(3));
 	}
 }

@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
 @Service
@@ -45,6 +46,27 @@ public class NotificationService {
 	public long countUnread(Long memberId) {
 		requireLogin(memberId);
 		return notificationRepository.countByMemberIdAndReadAtIsNull(memberId);
+	}
+
+	/**
+	 * 알림 하나 읽음 처리. 이미 읽었어도 성공으로 본다.
+	 * 다른 회원의 알림이면 존재 여부를 알려주지 않도록 없는 알림과 똑같이 404로 응답한다.
+	 */
+	@Transactional
+	public Notification markRead(Long memberId, Long notificationId) {
+		requireLogin(memberId);
+		Notification notification = notificationRepository.findById(notificationId)
+				.filter(found -> found.getMemberId().equals(memberId))
+				.orElseThrow(() -> new NotificationException(NOT_FOUND, "NOTIFICATION_NOT_FOUND", "알림을 찾을 수 없습니다."));
+		notification.markRead(now());
+		return notification;
+	}
+
+	/** 내 안 읽은 알림을 모두 읽음 처리하고 바뀐 개수를 돌려준다. */
+	@Transactional
+	public int markAllRead(Long memberId) {
+		requireLogin(memberId);
+		return notificationRepository.markAllRead(memberId, now());
 	}
 
 	static void requireLogin(Long memberId) {

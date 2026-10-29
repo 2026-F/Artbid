@@ -17,9 +17,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -82,5 +85,36 @@ class NotificationServiceTest {
 		when(notificationRepository.countByMemberIdAndReadAtIsNull(MEMBER_ID)).thenReturn(3L);
 
 		assertThat(service.countUnread(MEMBER_ID)).isEqualTo(3L);
+	}
+
+	@Test
+	void 내_알림을_읽음_처리한다() {
+		Notification notification = notification(5L, MEMBER_ID);
+		when(notificationRepository.findById(5L)).thenReturn(Optional.of(notification));
+
+		Notification result = service.markRead(MEMBER_ID, 5L);
+
+		assertThat(result.isRead()).isTrue();
+	}
+
+	@Test
+	void 다른_회원의_알림은_없는_알림처럼_404() {
+		when(notificationRepository.findById(5L)).thenReturn(Optional.of(notification(5L, 99L)));
+
+		assertError(() -> service.markRead(MEMBER_ID, 5L), HttpStatus.NOT_FOUND, "NOTIFICATION_NOT_FOUND");
+	}
+
+	@Test
+	void 없는_알림은_404() {
+		when(notificationRepository.findById(5L)).thenReturn(Optional.empty());
+
+		assertError(() -> service.markRead(MEMBER_ID, 5L), HttpStatus.NOT_FOUND, "NOTIFICATION_NOT_FOUND");
+	}
+
+	@Test
+	void 모두_읽음은_바뀐_개수를_돌려준다() {
+		when(notificationRepository.markAllRead(eq(MEMBER_ID), any(LocalDateTime.class))).thenReturn(4);
+
+		assertThat(service.markAllRead(MEMBER_ID)).isEqualTo(4);
 	}
 }
