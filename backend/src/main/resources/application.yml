@@ -33,7 +33,7 @@ spring:
 
 # 모니터링 지표는 서비스 포트(8080)와 분리한 관리 포트(8081)로만 노출한다.
 # Spring Security가 없어서 8080에 열면 배포 서버에서 누구나 지표를 볼 수 있기 때문.
-# 8081은 docker-compose에서 외부로 publish하지 않는다.
+# 8081은 docker-compose에서 루프백(127.0.0.1)으로만 바인딩해서, EC2 외부에서는 접근 불가.
 management:
   server:
     port: ${MANAGEMENT_PORT:8081}
