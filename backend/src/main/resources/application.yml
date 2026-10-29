@@ -30,6 +30,9 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 app:
+  auction:
+    live:
+      tick-interval-ms: 15000 # 구독 중인 경매에 잔여시간을 다시 맞춰 보내는 주기
   cors:
     allowed-origins: http://localhost:3000,  https://artbid-chi.vercel.app
   aws:
