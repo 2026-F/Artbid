@@ -47,6 +47,10 @@ app:
       sweep-interval-ms: 30000
   jwt:
     secret: ${JWT_SECRET:local-dev-only-please-change-this-secret-before-prod-32}
+  certificate:
+    # 작품 보증서 HMAC 서명 키. 운영에서는 반드시 환경변수로 32바이트 이상 랜덤 값을 넣는다. 키가 바뀌면 기존 보증서 검증이 실패한다
+    hmac-secret: ${CERTIFICATE_HMAC_SECRET:local-dev-only-change-this-certificate-hmac-secret}
+    key-version: ${CERTIFICATE_KEY_VERSION:v1}
   payment:
     toss:
       secret-key: ${TOSS_SECRET_KEY:test_sk_dummy_key_for_local_dev_only}
