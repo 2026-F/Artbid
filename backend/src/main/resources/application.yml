@@ -29,6 +29,15 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus, metrics
+  metrics:
+    tags:
+      application: artbid-backend
+
 app:
   cors:
     allowed-origins: http://localhost:3000,  https://artbid-chi.vercel.app
