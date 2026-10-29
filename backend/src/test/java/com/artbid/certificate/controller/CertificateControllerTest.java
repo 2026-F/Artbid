@@ -98,4 +98,24 @@ class CertificateControllerTest {
 				.andExpect(jsonPath("$.result").value("SIGNATURE_MISMATCH"))
 				.andExpect(jsonPath("$.certificate").doesNotExist());
 	}
+
+	@Test
+	void 작품의_현재_보증서를_로그인_없이_조회한다() throws Exception {
+		when(certificateService.getActive(7L)).thenReturn(certificate());
+
+		mockMvc.perform(get("/api/artworks/7/certificate"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.serialNumber").value("ABC-20261029-0A1B2C3D"))
+				.andExpect(jsonPath("$.signature").value("signature-value"));
+	}
+
+	@Test
+	void 보증서가_없으면_404() throws Exception {
+		when(certificateService.getActive(7L))
+				.thenThrow(new CertificateException(HttpStatus.NOT_FOUND, "CERTIFICATE_NOT_FOUND", "발급된 보증서가 없습니다."));
+
+		mockMvc.perform(get("/api/artworks/7/certificate"))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("CERTIFICATE_NOT_FOUND"));
+	}
 }

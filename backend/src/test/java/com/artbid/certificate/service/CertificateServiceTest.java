@@ -184,4 +184,19 @@ class CertificateServiceTest {
 	void 서명을_안_넣으면_400() {
 		assertError(() -> service.verify("ART-00000000-00000000", " "), HttpStatus.BAD_REQUEST, "VALIDATION_ERROR");
 	}
+
+	@Test
+	void 작품의_현재_보증서를_조회한다() {
+		ArtworkCertificate certificate = issued();
+		when(certificateRepository.findByArtworkIdAndStatus(ARTWORK_ID, CertificateStatus.ACTIVE)).thenReturn(List.of(certificate));
+
+		assertThat(service.getActive(ARTWORK_ID)).isSameAs(certificate);
+	}
+
+	@Test
+	void 발급된_보증서가_없으면_404() {
+		when(certificateRepository.findByArtworkIdAndStatus(ARTWORK_ID, CertificateStatus.ACTIVE)).thenReturn(List.of());
+
+		assertError(() -> service.getActive(ARTWORK_ID), HttpStatus.NOT_FOUND, "CERTIFICATE_NOT_FOUND");
+	}
 }

@@ -30,6 +30,12 @@ public class CertificateController {
 		return CertificateResponse.from(certificateService.issue(artworkId, memberId(principal), role(request)));
 	}
 
+	// 작품의 현재 보증서 (공개)
+	@GetMapping("/api/artworks/{artworkId}/certificate")
+	public CertificateResponse getActive(@PathVariable Long artworkId) {
+		return CertificateResponse.from(certificateService.getActive(artworkId));
+	}
+
 	// 보증서 진위 확인 (공개). 결과는 항상 200으로 주고 valid/result로 구분한다
 	@GetMapping("/api/certificates/{serialNumber}/verify")
 	public CertificateVerifyResponse verify(@PathVariable String serialNumber,

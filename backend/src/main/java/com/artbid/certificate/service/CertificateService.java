@@ -59,6 +59,14 @@ public class CertificateService {
 		return certificateRepository.save(ArtworkCertificate.issue(payload, signer.sign(payload)));
 	}
 
+	/** 작품의 현재 유효한 보증서. 작품 상세 화면에서 보증서와 검증 링크(QR)를 보여줄 때 쓴다. 공개. */
+	@Transactional(readOnly = true)
+	public ArtworkCertificate getActive(Long artworkId) {
+		return certificateRepository.findByArtworkIdAndStatus(artworkId, CertificateStatus.ACTIVE).stream()
+				.findFirst()
+				.orElseThrow(() -> new CertificateException(NOT_FOUND, "CERTIFICATE_NOT_FOUND", "발급된 보증서가 없습니다."));
+	}
+
 	/**
 	 * 보증서 진위 확인. 로그인 없이 누구나 할 수 있다(구매자가 보증서의 일련번호와 서명으로 확인).
 	 * 저장된 내용으로 서명을 다시 계산해서 두 가지를 확인한다.
