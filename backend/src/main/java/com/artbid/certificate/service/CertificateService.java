@@ -4,6 +4,8 @@ import com.artbid.artwork.domain.Artwork;
 import com.artbid.certificate.domain.ArtworkCertificate;
 import com.artbid.certificate.domain.CertificatePayload;
 import com.artbid.certificate.domain.CertificateStatus;
+import com.artbid.certificate.dto.CertificateVerifyResponse;
+import com.artbid.certificate.dto.CertificateVerifyResponse.Result;
 import com.artbid.certificate.exception.CertificateException;
 import com.artbid.certificate.repository.ArtworkCertificateRepository;
 import com.artbid.member.domain.MemberRole;
@@ -18,6 +20,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.Objects;
 
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
@@ -54,6 +57,29 @@ public class CertificateService {
 				artwork.getTitle(), artwork.getMedium(), artwork.getWidthCm(), artwork.getHeightCm(), artwork.getDepthCm(),
 				artwork.getProductionYear(), artwork.getCertificateUrl(), now, signer.keyVersion());
 		return certificateRepository.save(ArtworkCertificate.issue(payload, signer.sign(payload)));
+	}
+
+	/**
+	 * 보증서 진위 확인. 로그인 없이 누구나 할 수 있다(구매자가 보증서의 일련번호와 서명으로 확인).
+	 * 저장된 내용으로 서명을 다시 계산해서 두 가지를 확인한다.
+	 * 1) 입력한 서명이 맞는지: 보증서 사본의 서명이 위조되거나 잘못 옮겨 적히지 않았는지
+	 * 2) 저장된 서명이 맞는지: DB의 보증서 내용이 발급 뒤에 바뀌지 않았는지
+	 */
+	@Transactional(readOnly = true)
+	public CertificateVerifyResponse verify(String serialNumber, String signature) {
+		if (signature == null || signature.isBlank()) {
+			throw new CertificateException(BAD_REQUEST, "VALIDATION_ERROR", "서명 값을 입력해주세요.");
+		}
+		ArtworkCertificate certificate = certificateRepository.findBySerialNumber(serialNumber).orElse(null);
+		if (certificate == null) {
+			return CertificateVerifyResponse.of(Result.NOT_FOUND, null);
+		}
+		boolean providedMatches = signer.verify(certificate.payload(), signature);
+		boolean storedMatches = signer.verify(certificate.payload(), certificate.getSignature());
+		if (!providedMatches || !storedMatches) {
+			return CertificateVerifyResponse.of(Result.SIGNATURE_MISMATCH, certificate);
+		}
+		return CertificateVerifyResponse.of(certificate.isActive() ? Result.VALID : Result.REVOKED, certificate);
 	}
 
 	// 예: ART-20261029-3F9A1C7B. 날짜 + 추측하기 어려운 무작위 8자리

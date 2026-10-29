@@ -2,6 +2,7 @@ package com.artbid.certificate.controller;
 
 import com.artbid.certificate.domain.ArtworkCertificate;
 import com.artbid.certificate.domain.CertificatePayload;
+import com.artbid.certificate.dto.CertificateVerifyResponse;
 import com.artbid.certificate.exception.CertificateException;
 import com.artbid.certificate.service.CertificateService;
 import com.artbid.member.auth.JwtAuthenticationFilter;
@@ -22,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -71,5 +73,29 @@ class CertificateControllerTest {
 		mockMvc.perform(post("/api/artworks/7/certificates").principal(() -> "9"))
 				.andExpect(status().isForbidden())
 				.andExpect(jsonPath("$.code").value("CERTIFICATE_FORBIDDEN"));
+	}
+
+	@Test
+	void 로그인_없이_진위를_확인한다() throws Exception {
+		when(certificateService.verify("ABC-20261029-0A1B2C3D", "signature-value"))
+				.thenReturn(CertificateVerifyResponse.of(CertificateVerifyResponse.Result.VALID, certificate()));
+
+		mockMvc.perform(get("/api/certificates/ABC-20261029-0A1B2C3D/verify").param("signature", "signature-value"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.valid").value(true))
+				.andExpect(jsonPath("$.result").value("VALID"))
+				.andExpect(jsonPath("$.certificate.title").value("붉은 정원"));
+	}
+
+	@Test
+	void 위조된_서명이면_200에_valid_false() throws Exception {
+		when(certificateService.verify("ABC-20261029-0A1B2C3D", "forged"))
+				.thenReturn(CertificateVerifyResponse.of(CertificateVerifyResponse.Result.SIGNATURE_MISMATCH, certificate()));
+
+		mockMvc.perform(get("/api/certificates/ABC-20261029-0A1B2C3D/verify").param("signature", "forged"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.valid").value(false))
+				.andExpect(jsonPath("$.result").value("SIGNATURE_MISMATCH"))
+				.andExpect(jsonPath("$.certificate").doesNotExist());
 	}
 }

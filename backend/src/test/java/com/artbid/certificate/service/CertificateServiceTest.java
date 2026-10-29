@@ -4,6 +4,8 @@ import com.artbid.artwork.domain.Artwork;
 import com.artbid.artwork.domain.ArtworkCategory;
 import com.artbid.certificate.domain.ArtworkCertificate;
 import com.artbid.certificate.domain.CertificateStatus;
+import com.artbid.certificate.dto.CertificateVerifyResponse;
+import com.artbid.certificate.dto.CertificateVerifyResponse.Result;
 import com.artbid.certificate.exception.CertificateException;
 import com.artbid.certificate.repository.ArtworkCertificateRepository;
 import com.artbid.member.domain.MemberRole;
@@ -117,5 +119,69 @@ class CertificateServiceTest {
 	void 일련번호는_매번_다르다() {
 		LocalDateTime now = LocalDateTime.now();
 		assertThat(CertificateService.newSerialNumber(now)).isNotEqualTo(CertificateService.newSerialNumber(now));
+	}
+
+	ArtworkCertificate issued() {
+		var payload = CertificateSignerTest.payload("붉은 정원");
+		return ArtworkCertificate.issue(payload, signer.sign(payload));
+	}
+
+	@Test
+	void 일련번호와_서명이_맞으면_유효하다() {
+		ArtworkCertificate certificate = issued();
+		when(certificateRepository.findBySerialNumber(certificate.getSerialNumber())).thenReturn(Optional.of(certificate));
+
+		CertificateVerifyResponse response = service.verify(certificate.getSerialNumber(), certificate.getSignature());
+
+		assertThat(response.valid()).isTrue();
+		assertThat(response.result()).isEqualTo(Result.VALID);
+		assertThat(response.certificate().title()).isEqualTo("붉은 정원");
+	}
+
+	@Test
+	void 서명이_틀리면_내용을_보여주지_않는다() {
+		ArtworkCertificate certificate = issued();
+		when(certificateRepository.findBySerialNumber(certificate.getSerialNumber())).thenReturn(Optional.of(certificate));
+
+		CertificateVerifyResponse response = service.verify(certificate.getSerialNumber(), "forged-signature");
+
+		assertThat(response.valid()).isFalse();
+		assertThat(response.result()).isEqualTo(Result.SIGNATURE_MISMATCH);
+		assertThat(response.certificate()).isNull();
+	}
+
+	@Test
+	void 저장된_내용이_바뀌었으면_원래_서명으로도_실패한다() {
+		ArtworkCertificate certificate = issued();
+		String originalSignature = certificate.getSignature();
+		ReflectionTestUtils.setField(certificate, "title", "다른 작품"); // DB 직접 변조
+		when(certificateRepository.findBySerialNumber(certificate.getSerialNumber())).thenReturn(Optional.of(certificate));
+
+		assertThat(service.verify(certificate.getSerialNumber(), originalSignature).result()).isEqualTo(Result.SIGNATURE_MISMATCH);
+	}
+
+	@Test
+	void 폐기된_보증서는_유효하지_않다() {
+		ArtworkCertificate certificate = issued();
+		certificate.revoke(LocalDateTime.now());
+		when(certificateRepository.findBySerialNumber(certificate.getSerialNumber())).thenReturn(Optional.of(certificate));
+
+		CertificateVerifyResponse response = service.verify(certificate.getSerialNumber(), certificate.getSignature());
+
+		assertThat(response.valid()).isFalse();
+		assertThat(response.result()).isEqualTo(Result.REVOKED);
+		assertThat(response.certificate().status()).isEqualTo(CertificateStatus.REVOKED);
+	}
+
+	@Test
+	void 없는_일련번호는_NOT_FOUND() {
+		when(certificateRepository.findBySerialNumber("ART-00000000-00000000")).thenReturn(Optional.empty());
+
+		assertThat(service.verify("ART-00000000-00000000", "sig").result()).isEqualTo(Result.NOT_FOUND);
+	}
+
+	@Test
+	void 서명을_안_넣으면_400() {
+		assertError(() -> service.verify("ART-00000000-00000000", " "), HttpStatus.BAD_REQUEST, "VALIDATION_ERROR");
 	}
 }
