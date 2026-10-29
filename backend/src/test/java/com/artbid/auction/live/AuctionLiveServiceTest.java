@@ -9,6 +9,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -28,12 +29,14 @@ class AuctionLiveServiceTest {
 	private AuctionLiveCache cache;
 	@Mock
 	private AuctionRepository auctionRepository;
+	@Mock
+	private ApplicationEventPublisher eventPublisher;
 
 	private AuctionLiveService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new AuctionLiveService(cache, auctionRepository);
+		service = new AuctionLiveService(cache, auctionRepository, eventPublisher);
 	}
 
 	private Auction auction(Long currentPrice) {
@@ -86,5 +89,22 @@ class AuctionLiveServiceTest {
 		assertThatThrownBy(() -> service.getView(1L, AuctionLiveReason.SNAPSHOT))
 				.isInstanceOf(IllegalArgumentException.class);
 		verify(cache, never()).saveSnapshotIfAbsent(any());
+	}
+
+	@Test
+	void DB의_최신_값으로_변경_이벤트를_발행한다() {
+		Auction closed = auction(30_000L);
+		org.springframework.test.util.ReflectionTestUtils.setField(closed, "status", AuctionStatus.CLOSED);
+		when(auctionRepository.findById(1L)).thenReturn(Optional.of(closed));
+
+		service.publishCurrent(1L, AuctionLiveReason.CLOSED);
+
+		ArgumentCaptor<AuctionLiveChangedEvent> captor = ArgumentCaptor.forClass(AuctionLiveChangedEvent.class);
+		verify(eventPublisher).publishEvent(captor.capture());
+		AuctionLiveChangedEvent event = captor.getValue();
+		assertThat(event.reason()).isEqualTo(AuctionLiveReason.CLOSED);
+		assertThat(event.state().status()).isEqualTo(AuctionStatus.CLOSED);
+		assertThat(event.state().currentPrice()).isEqualTo(30_000L);
+		assertThat(event.state().version()).isPositive();
 	}
 }
