@@ -21,4 +21,9 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
 	// 정산 배치: 결제 기한이 지난 미결제 정산 ID
 	@Query("select s.id from Settlement s where s.paymentStatus = :status and s.paymentDeadlineAt <= :now order by s.id")
 	List<Long> findIdsByStatusAndDeadlineAtOrBefore(@Param("status") PaymentStatus status, @Param("now") LocalDateTime now);
+
+	// 정산 배치: 결제는 끝났는데 위탁자 지급 대기가 아직 없는 정산 ID
+	@Query("select s.id from Settlement s where s.paymentStatus = :status"
+			+ " and not exists (select p.id from SellerPayout p where p.settlementId = s.id) order by s.id")
+	List<Long> findIdsByStatusWithoutPayout(@Param("status") PaymentStatus status);
 }
