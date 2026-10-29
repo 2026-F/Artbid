@@ -51,9 +51,9 @@ Artwork 상태 변경, SSE 브로드캐스트)는 그대로 유지하고, Kafka 
 
 | 확인 항목 | 방법 | 결과 |
 | --- | --- | --- |
-| | | |
-
-미검증: <!-- 로컬 Kafka/Zookeeper 기동 및 실제 발행-소비 확인 전이면 여기에 이유 적기 -->
+| 로컬 Kafka/Zookeeper 기동 | `docker compose --profile expansion up -d zookeeper kafka` | 정상 기동 확인 (broker started 로그) |
+| 경매 마감 → outbox 저장 → Kafka 발행 | 테스트 경매(마감시각 과거로 설정) 생성 후 수동 트리거, `outbox_event` 테이블 조회 | `status: PUBLISHED` 확인 (2건 테스트, 총 7개 이벤트 모두 발행 성공) |
+| Kafka 발행 → 소비(Consumer) | `AuctionClosedEventListener` 로그 확인 | `[Kafka] auction.closed 수신: {"auctionId":17,...}` 로그 확인됨 |
 
 ## 남은 작업
 
