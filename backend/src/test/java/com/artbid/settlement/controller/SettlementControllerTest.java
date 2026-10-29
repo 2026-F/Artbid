@@ -3,6 +3,7 @@ package com.artbid.settlement.controller;
 import com.artbid.member.auth.JwtAuthenticationFilter;
 import com.artbid.member.domain.MemberRole;
 import com.artbid.settlement.domain.PaymentStatus;
+import com.artbid.settlement.domain.SellerPayout;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.exception.SettlementAccessDeniedException;
 import com.artbid.settlement.exception.SettlementNotFoundException;
@@ -19,6 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.time.LocalDateTime;
@@ -121,5 +123,28 @@ class SettlementControllerTest {
 		mockMvc.perform(get("/api/settlements/me").param("status", "WRONG").principal(winner))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+	}
+
+	@Test
+	void 내_지급_내역과_합계를_조회한다() throws Exception {
+		Settlement paid = settlement();
+		paid.markPaid();
+		SellerPayout payout = SellerPayout.ready(paid, 100L, 3L, new BigDecimal("0.10"), LocalDateTime.of(2026, 10, 29, 12, 0));
+		ReflectionTestUtils.setField(payout, "id", 9L);
+		when(settlementService.getMyPayouts(3L)).thenReturn(List.of(payout));
+
+		mockMvc.perform(get("/api/settlements/payouts/me").principal(() -> "3"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.readyAmount").value(90_000))
+				.andExpect(jsonPath("$.paidAmount").value(0))
+				.andExpect(jsonPath("$.payouts[0].id").value(9))
+				.andExpect(jsonPath("$.payouts[0].commissionAmount").value(10_000))
+				.andExpect(jsonPath("$.payouts[0].status").value("READY"));
+	}
+
+	@Test
+	void 내_지급_내역은_로그인이_필요하다() throws Exception {
+		mockMvc.perform(get("/api/settlements/payouts/me"))
+				.andExpect(status().isUnauthorized());
 	}
 }

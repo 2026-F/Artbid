@@ -3,6 +3,7 @@ package com.artbid.settlement.controller;
 import com.artbid.member.auth.JwtAuthenticationFilter;
 import com.artbid.member.domain.MemberRole;
 import com.artbid.settlement.domain.PaymentStatus;
+import com.artbid.settlement.dto.SellerPayoutListResponse;
 import com.artbid.settlement.dto.SettlementResponse;
 import com.artbid.settlement.exception.SettlementAuthRequiredException;
 import com.artbid.settlement.service.SettlementService;
@@ -31,6 +32,12 @@ public class SettlementController {
 		return settlementService.getMySettlements(memberId(principal), status).stream()
 				.map(SettlementResponse::from)
 				.toList();
+	}
+
+	// 내 판매 지급 내역 (위탁자 기준). 지급 대기·완료 합계와 목록
+	@GetMapping("/payouts/me")
+	public SellerPayoutListResponse getMyPayouts(Principal principal) {
+		return SellerPayoutListResponse.from(settlementService.getMyPayouts(memberId(principal)));
 	}
 
 	@GetMapping("/{id}")

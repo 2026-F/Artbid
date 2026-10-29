@@ -4,9 +4,11 @@ import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.member.domain.MemberRole;
 import com.artbid.settlement.domain.PaymentStatus;
+import com.artbid.settlement.domain.SellerPayout;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.exception.SettlementAccessDeniedException;
 import com.artbid.settlement.exception.SettlementNotFoundException;
+import com.artbid.settlement.repository.SellerPayoutRepository;
 import com.artbid.settlement.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ public class SettlementService {
 	private final SettlementRepository settlementRepository;
 	private final AuctionRepository auctionRepository;
 	private final ArtworkRepository artworkRepository;
+	private final SellerPayoutRepository sellerPayoutRepository;
 
 	public Settlement getSettlement(Long id, Long memberId, MemberRole role) {
 		Settlement settlement = settlementRepository.findById(id)
@@ -41,6 +44,11 @@ public class SettlementService {
 		return status == null
 				? settlementRepository.findByWinnerIdOrderByIdDesc(memberId)
 				: settlementRepository.findByWinnerIdAndPaymentStatusOrderByIdDesc(memberId, status);
+	}
+
+	// 내 작품이 팔려 받을(또는 받은) 지급 내역. 위탁자 본인 것만. 최신순.
+	public List<SellerPayout> getMyPayouts(Long memberId) {
+		return sellerPayoutRepository.findByConsignorIdOrderByIdDesc(memberId);
 	}
 
 	// 낙찰자 본인, 해당 작품의 위탁자, 관리자만 볼 수 있다. 역할만으로는 허용하지 않고 실제 당사자인지 확인한다.

@@ -9,6 +9,7 @@ import com.artbid.settlement.domain.PaymentStatus;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.exception.SettlementAccessDeniedException;
 import com.artbid.settlement.exception.SettlementNotFoundException;
+import com.artbid.settlement.repository.SellerPayoutRepository;
 import com.artbid.settlement.repository.SettlementRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,13 +40,15 @@ class SettlementServiceTest {
 	private AuctionRepository auctionRepository;
 	@Mock
 	private ArtworkRepository artworkRepository;
+	@Mock
+	private SellerPayoutRepository sellerPayoutRepository;
 
 	private SettlementService service;
 	private final Settlement settlement = Settlement.create(5L, WINNER_ID, 100_000, 10_000, 30_000, LocalDateTime.now().plusDays(3));
 
 	@BeforeEach
 	void setUp() {
-		service = new SettlementService(settlementRepository, auctionRepository, artworkRepository);
+		service = new SettlementService(settlementRepository, auctionRepository, artworkRepository, sellerPayoutRepository);
 	}
 
 	private void consignorIs(Long consignorId) {
@@ -108,5 +111,13 @@ class SettlementServiceTest {
 				.thenReturn(List.of(settlement));
 
 		assertThat(service.getMySettlements(WINNER_ID, PaymentStatus.PENDING)).containsExactly(settlement);
+	}
+
+	@Test
+	void 내_지급_내역은_위탁자_본인_것만_조회한다() {
+		when(sellerPayoutRepository.findByConsignorIdOrderByIdDesc(CONSIGNOR_ID)).thenReturn(List.of());
+
+		assertThat(service.getMyPayouts(CONSIGNOR_ID)).isEmpty();
+		org.mockito.Mockito.verify(sellerPayoutRepository).findByConsignorIdOrderByIdDesc(CONSIGNOR_ID);
 	}
 }
