@@ -170,6 +170,17 @@ public class Artwork {
 		this.status = ArtworkStatus.REJECTED;
 	}
 
+	// 이미 승인되어 공개된 작품(PREVIEW/IN_AUCTION)을 어드민이 다시 비공개로 내릴 때 쓴다.
+	// 심사 반려(reject)와 결과 상태(REJECTED)는 같지만, 심사 대기 상태에서만 되는 reject()와
+	// 달리 "이미 공개된 걸 내리는" 경우를 위해 메서드를 분리했다. SOLD(낙찰 완료)는 내릴 수 없다.
+	public void unpublish(){
+		if(status != ArtworkStatus.PREVIEW && status != ArtworkStatus.IN_AUCTION){
+			throw new ArtworkNotEditableException(id, status);
+		}
+
+		this.status = ArtworkStatus.REJECTED;
+	}
+
 	private static String requireTitle(String title) {
 		if (title == null || title.isBlank()) {
 			throw new IllegalArgumentException("작품 제목은 비어 있을 수 없습니다");
