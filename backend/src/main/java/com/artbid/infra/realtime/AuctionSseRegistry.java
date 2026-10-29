@@ -7,8 +7,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 @Component
 public class AuctionSseRegistry {
@@ -47,6 +49,38 @@ public class AuctionSseRegistry {
 		}
 	}
 
+
+	// 이름 있는 SSE 이벤트(event: 이름)로 보낸다. 브라우저 EventSource의 onmessage는 이름 없는 이벤트만 받으므로
+	// 기존 broadcast()를 쓰는 화면에는 영향이 없고, 새 이벤트는 addEventListener(이름)로 받는다.
+	public void broadcastEvent(Long auctionId, String eventName, Object payload) {
+		List<SseEmitter> auctionEmitters = emitters.get(auctionId);
+		if (auctionEmitters == null || auctionEmitters.isEmpty()) {
+			return;
+		}
+		for (SseEmitter emitter : auctionEmitters) {
+			if (!sendEvent(emitter, eventName, payload)) {
+				auctionEmitters.remove(emitter);
+			}
+		}
+	}
+
+	// 구독 하나에만 이름 있는 이벤트를 보낸다. 실패하면(연결이 이미 끊김 등) false.
+	public boolean sendEvent(SseEmitter emitter, String eventName, Object payload) {
+		try {
+			emitter.send(SseEmitter.event().name(eventName).data(payload));
+			return true;
+		} catch (Exception e) {
+			return false;
+		}
+	}
+
+	// 지금 구독자가 한 명 이상 있는 경매 ID. 주기적 동기화는 이 경매들에만 보낸다.
+	public Set<Long> activeAuctionIds() {
+		return emitters.entrySet().stream()
+				.filter(entry -> !entry.getValue().isEmpty())
+				.map(Map.Entry::getKey)
+				.collect(Collectors.toUnmodifiableSet());
+	}
 
 	// broadcast()를 DB 트랜잭션이 진짜로 커밋된 뒤에만 실행되게 감싸주는 버전.
 	// closeOne()이 트랜잭션 도중 뭔가 실패해서 롤백되면, 경매는 사실 안 닫힌 건데

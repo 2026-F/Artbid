@@ -81,9 +81,12 @@ services:
     profiles: ["monitoring"]
     depends_on:
       - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: artbid1234
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - artbid-grafana-data:/var/lib/grafana
     ports:
       - "3001:3000"
 
@@ -100,3 +103,4 @@ services:
 
 volumes:
   artbid-postgres-data:
+  artbid-grafana-data:

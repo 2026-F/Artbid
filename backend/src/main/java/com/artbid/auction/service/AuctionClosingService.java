@@ -16,11 +16,17 @@ import org.springframework.data.domain.Limit;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.artbid.infra.kafka.AuctionClosedMessage;
+import com.artbid.infra.outbox.OutboxEvent;
+import com.artbid.infra.outbox.OutboxEventRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuctionClosingService {
@@ -34,6 +40,9 @@ public class AuctionClosingService {
     private final BidRepository bidRepository;
     private final SettlementRepository settlementRepository;
     private final AuctionSseRegistry sseRegistry;
+
+    private final OutboxEventRepository outboxEventRepository;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public void closeOne(Long auctionId, LocalDateTime now) {
@@ -59,6 +68,16 @@ public class AuctionClosingService {
             Artwork artwork = artworkRepository.findById(auction.getArtworkId())
                     .orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다: " + auction.getArtworkId()));
             artwork.markSold();
+
+            try {
+                AuctionClosedMessage message = new AuctionClosedMessage(
+                        auctionId, bid.getBidderId(), auction.getArtworkId(), finalPrice);
+                String payload = objectMapper.writeValueAsString(message);
+                outboxEventRepository.save(
+                        OutboxEvent.create(AuctionClosedMessage.TOPIC, String.valueOf(auctionId), payload));
+            } catch (Exception e) {
+                log.warn("auction.closed 이벤트 생성 실패 (auctionId={}): {}", auctionId, e.getMessage());
+            }
         });
 
         sseRegistry.broadcastAfterCommit(auctionId,
