@@ -32,6 +32,11 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 app:
+  settlement:
+    seller-commission-rate: 0.10 # 위탁자 지급 시 떼는 판매 수수료율. 정책 미정이라 임시값
+    batch:
+      enabled: true
+      cron: "0 */10 * * * *" # 미결제 만료 + 위탁자 지급 대기 생성 (초 분 시 일 월 요일)
   auction:
     live:
       tick-interval-ms: 15000 # 구독 중인 경매에 잔여시간을 다시 맞춰 보내는 주기
