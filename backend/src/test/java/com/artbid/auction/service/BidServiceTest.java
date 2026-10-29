@@ -3,6 +3,8 @@ package com.artbid.auction.service;
 import com.artbid.auction.domain.Auction;
 import com.artbid.auction.domain.AuctionStatus;
 import com.artbid.auction.domain.Bid;
+import com.artbid.auction.live.AuctionLiveChangedEvent;
+import com.artbid.auction.live.AuctionLiveReason;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.auction.repository.BidRepository;
 import com.artbid.common.exception.BidTemporarilyUnavailableException;
@@ -13,8 +15,10 @@ import jakarta.persistence.Query;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.Limit;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -29,6 +33,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import static org.mockito.Mockito.lenient;
@@ -44,6 +50,8 @@ import static org.mockito.Mockito.lenient;
 	private AuctionSseRegistry sseRegistry;
 	@Mock
 	private EntityManager entityManager;
+	@Mock
+	private ApplicationEventPublisher eventPublisher;
 
 	private BidService bidService;
 
@@ -52,7 +60,7 @@ import static org.mockito.Mockito.lenient;
 
 	@BeforeEach
 	void setUp() {
-		bidService = new BidService(auctionRepository, bidRepository, sseRegistry);
+		bidService = new BidService(auctionRepository, bidRepository, sseRegistry, eventPublisher);
 		ReflectionTestUtils.setField(bidService, "entityManager", entityManager);
 
 		// lockAuctionOrThrow()가 cancelBid/submitBid 진입 시 항상 먼저 실행하는
@@ -169,5 +177,50 @@ import static org.mockito.Mockito.lenient;
 		assertThat(responses.get(0).canceledAt()).isNull();
 		assertThat(responses.get(1).canceled()).isTrue();
 		assertThat(responses.get(1).canceledAt()).isEqualTo(now);
+	}
+
+	@Test
+	void 입찰하면_실시간_상태_변경_이벤트를_발행한다() {
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		when(auctionRepository.findByIdForUpdate(AUCTION_ID)).thenReturn(Optional.of(auction));
+
+		bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L);
+
+		ArgumentCaptor<AuctionLiveChangedEvent> captor = ArgumentCaptor.forClass(AuctionLiveChangedEvent.class);
+		verify(eventPublisher).publishEvent(captor.capture());
+		AuctionLiveChangedEvent event = captor.getValue();
+		assertThat(event.reason()).isEqualTo(AuctionLiveReason.BID);
+		assertThat(event.state().auctionId()).isEqualTo(AUCTION_ID);
+		assertThat(event.state().currentPrice()).isEqualTo(16_000L);
+		assertThat(event.state().version()).isPositive();
+		assertThat(event.extended()).isFalse();
+	}
+
+	@Test
+	void 입찰_검증에_실패하면_이벤트를_발행하지_않는다() {
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		when(auctionRepository.findByIdForUpdate(AUCTION_ID)).thenReturn(Optional.of(auction));
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 15_500L)) // 최소 단위 미달
+				.isInstanceOf(InvalidBidException.class);
+		verify(eventPublisher, never()).publishEvent(any(Object.class));
+	}
+
+	@Test
+	void 입찰을_취소하면_되돌린_현재가로_이벤트를_발행한다() {
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		Bid latestBid = new Bid(AUCTION_ID, BIDDER_ID, 15_000L, LocalDateTime.now());
+		when(auctionRepository.findByIdForUpdate(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(bidRepository.findMyLatestBid(eq(AUCTION_ID), eq(BIDDER_ID), any(Limit.class)))
+				.thenReturn(Optional.of(latestBid));
+		when(bidRepository.findTopBid(eq(AUCTION_ID), any(Limit.class)))
+				.thenReturn(Optional.of(new Bid(AUCTION_ID, 20L, 12_000L, LocalDateTime.now().minusMinutes(1))));
+
+		bidService.cancelBid(AUCTION_ID, BIDDER_ID);
+
+		ArgumentCaptor<AuctionLiveChangedEvent> captor = ArgumentCaptor.forClass(AuctionLiveChangedEvent.class);
+		verify(eventPublisher).publishEvent(captor.capture());
+		assertThat(captor.getValue().reason()).isEqualTo(AuctionLiveReason.BID_CANCELED);
+		assertThat(captor.getValue().state().currentPrice()).isEqualTo(12_000L);
 	}
 }
