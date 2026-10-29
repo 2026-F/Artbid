@@ -1,5 +1,7 @@
 package com.artbid.shipping.controller;
 
+import com.artbid.member.auth.JwtAuthenticationFilter;
+import com.artbid.member.domain.MemberRole;
 import com.artbid.shipping.domain.Shipment;
 import com.artbid.shipping.domain.ShippingAddress;
 import com.artbid.shipping.exception.ShipmentException;
@@ -28,6 +30,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -110,5 +113,27 @@ class ShipmentControllerTest {
 						.contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
 				.andExpect(status().isForbidden())
 				.andExpect(jsonPath("$.code").value("SHIPMENT_FORBIDDEN"));
+	}
+
+	@Test
+	void 배송_정보를_조회한다() throws Exception {
+		when(shipmentService.get(1L, 3L, MemberRole.CONSIGNOR)).thenReturn(shipment());
+
+		mockMvc.perform(get("/api/settlements/1/shipment").principal(() -> "3")
+						.requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.CONSIGNOR))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.recipientName").value("김수령"))
+				.andExpect(jsonPath("$.address").value("서울 중구 세종대로 110"))
+				.andExpect(jsonPath("$.trackingNumber").doesNotExist());
+	}
+
+	@Test
+	void 로그인하지_않으면_서비스가_401로_거절한다() throws Exception {
+		when(shipmentService.get(1L, null, null))
+				.thenThrow(new ShipmentException(HttpStatus.UNAUTHORIZED, "AUTH_REQUIRED", "로그인이 필요합니다."));
+
+		mockMvc.perform(get("/api/settlements/1/shipment"))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
 	}
 }

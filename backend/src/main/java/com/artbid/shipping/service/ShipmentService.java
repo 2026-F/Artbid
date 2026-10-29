@@ -1,5 +1,8 @@
 package com.artbid.shipping.service;
 
+import com.artbid.artwork.repository.ArtworkRepository;
+import com.artbid.auction.repository.AuctionRepository;
+import com.artbid.member.domain.MemberRole;
 import com.artbid.settlement.domain.PaymentStatus;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.repository.SettlementRepository;
@@ -26,6 +29,8 @@ public class ShipmentService {
 
 	private final SettlementRepository settlementRepository;
 	private final ShipmentRepository shipmentRepository;
+	private final AuctionRepository auctionRepository;
+	private final ArtworkRepository artworkRepository;
 
 	/**
 	 * 배송지 입력 또는 수정. 낙찰자 본인만 할 수 있다.
@@ -55,6 +60,30 @@ public class ShipmentService {
 			throw new ShipmentException(CONFLICT, "SHIPMENT_ALREADY_SHIPPED", e.getMessage());
 		}
 		return shipment;
+	}
+
+	/** 배송 정보 조회. 낙찰자 본인, 해당 작품 위탁자, 관리자만. */
+	public Shipment get(Long settlementId, Long memberId, MemberRole role) {
+		requireLogin(memberId);
+		Settlement settlement = settlementRepository.findById(settlementId)
+				.orElseThrow(ShipmentService::settlementNotFound);
+		if (!isWinner(settlement, memberId) && !isConsignor(settlement, memberId) && role != MemberRole.ADMIN) {
+			throw new ShipmentException(FORBIDDEN, "SHIPMENT_FORBIDDEN", "이 배송 정보를 볼 권한이 없습니다.");
+		}
+		return shipmentRepository.findBySettlementId(settlementId)
+				.orElseThrow(() -> new ShipmentException(NOT_FOUND, "SHIPMENT_NOT_FOUND", "아직 배송지가 입력되지 않았습니다."));
+	}
+
+	private static boolean isWinner(Settlement settlement, Long memberId) {
+		return Objects.equals(settlement.getWinnerId(), memberId);
+	}
+
+	// 역할(CONSIGNOR)만 보지 않고 이 정산의 작품을 맡긴 위탁자 본인인지 확인한다
+	private boolean isConsignor(Settlement settlement, Long memberId) {
+		return auctionRepository.findById(settlement.getAuctionId())
+				.flatMap(auction -> artworkRepository.findById(auction.getArtworkId()))
+				.map(artwork -> Objects.equals(artwork.getConsignorId(), memberId))
+				.orElse(false);
 	}
 
 	static void requireLogin(Long memberId) {

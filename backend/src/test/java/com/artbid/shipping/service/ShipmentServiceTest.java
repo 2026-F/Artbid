@@ -1,5 +1,10 @@
 package com.artbid.shipping.service;
 
+import com.artbid.artwork.domain.Artwork;
+import com.artbid.artwork.repository.ArtworkRepository;
+import com.artbid.auction.domain.Auction;
+import com.artbid.auction.repository.AuctionRepository;
+import com.artbid.member.domain.MemberRole;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.repository.SettlementRepository;
 import com.artbid.shipping.domain.Shipment;
@@ -21,6 +26,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,12 +43,16 @@ class ShipmentServiceTest {
 	SettlementRepository settlementRepository;
 	@Mock
 	ShipmentRepository shipmentRepository;
+	@Mock
+	AuctionRepository auctionRepository;
+	@Mock
+	ArtworkRepository artworkRepository;
 
 	ShipmentService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new ShipmentService(settlementRepository, shipmentRepository);
+		service = new ShipmentService(settlementRepository, shipmentRepository, auctionRepository, artworkRepository);
 	}
 
 	static Settlement settlement() {
@@ -127,5 +137,57 @@ class ShipmentServiceTest {
 		when(settlementRepository.findByIdForUpdate(SETTLEMENT_ID)).thenReturn(Optional.empty());
 
 		assertError(() -> service.saveAddress(SETTLEMENT_ID, WINNER_ID, address(null)), HttpStatus.NOT_FOUND, "SETTLEMENT_NOT_FOUND");
+	}
+
+	void consignorIs(Long consignorId) {
+		when(auctionRepository.findById(5L)).thenReturn(Optional.of(Auction.builder().id(5L).artworkId(100L).build()));
+		Artwork artwork = mock(Artwork.class);
+		when(artwork.getConsignorId()).thenReturn(consignorId);
+		when(artworkRepository.findById(100L)).thenReturn(Optional.of(artwork));
+	}
+
+	@Test
+	void 낙찰자는_배송_정보를_조회한다() {
+		Shipment shipment = Shipment.create(SETTLEMENT_ID, address(null), LocalDateTime.now());
+		when(settlementRepository.findById(SETTLEMENT_ID)).thenReturn(Optional.of(settlement()));
+		when(shipmentRepository.findBySettlementId(SETTLEMENT_ID)).thenReturn(Optional.of(shipment));
+
+		assertThat(service.get(SETTLEMENT_ID, WINNER_ID, MemberRole.BIDDER)).isSameAs(shipment);
+	}
+
+	@Test
+	void 위탁자는_발송을_위해_배송_정보를_조회한다() {
+		Shipment shipment = Shipment.create(SETTLEMENT_ID, address(null), LocalDateTime.now());
+		when(settlementRepository.findById(SETTLEMENT_ID)).thenReturn(Optional.of(settlement()));
+		consignorIs(CONSIGNOR_ID);
+		when(shipmentRepository.findBySettlementId(SETTLEMENT_ID)).thenReturn(Optional.of(shipment));
+
+		assertThat(service.get(SETTLEMENT_ID, CONSIGNOR_ID, MemberRole.CONSIGNOR)).isSameAs(shipment);
+	}
+
+	@Test
+	void 관리자는_배송_정보를_조회한다() {
+		Shipment shipment = Shipment.create(SETTLEMENT_ID, address(null), LocalDateTime.now());
+		when(settlementRepository.findById(SETTLEMENT_ID)).thenReturn(Optional.of(settlement()));
+		consignorIs(CONSIGNOR_ID);
+		when(shipmentRepository.findBySettlementId(SETTLEMENT_ID)).thenReturn(Optional.of(shipment));
+
+		assertThat(service.get(SETTLEMENT_ID, STRANGER_ID, MemberRole.ADMIN)).isSameAs(shipment);
+	}
+
+	@Test
+	void 관계없는_회원은_조회할_수_없다() {
+		when(settlementRepository.findById(SETTLEMENT_ID)).thenReturn(Optional.of(settlement()));
+		consignorIs(CONSIGNOR_ID);
+
+		assertError(() -> service.get(SETTLEMENT_ID, STRANGER_ID, MemberRole.CONSIGNOR), HttpStatus.FORBIDDEN, "SHIPMENT_FORBIDDEN");
+	}
+
+	@Test
+	void 배송지가_아직_없으면_404() {
+		when(settlementRepository.findById(SETTLEMENT_ID)).thenReturn(Optional.of(settlement()));
+		when(shipmentRepository.findBySettlementId(SETTLEMENT_ID)).thenReturn(Optional.empty());
+
+		assertError(() -> service.get(SETTLEMENT_ID, WINNER_ID, MemberRole.BIDDER), HttpStatus.NOT_FOUND, "SHIPMENT_NOT_FOUND");
 	}
 }
