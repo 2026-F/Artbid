@@ -31,6 +31,15 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus, metrics
+  metrics:
+    tags:
+      application: artbid-backend
+
 app:
   settlement:
     seller-commission-rate: 0.10 # 위탁자 지급 시 떼는 판매 수수료율. 정책 미정이라 임시값
