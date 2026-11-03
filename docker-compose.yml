@@ -90,6 +90,20 @@ services:
     ports:
       - "3001:3000"
 
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: cadvisor
+    profiles: ["monitoring"]
+    privileged: true
+    ports:
+      - "8085:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
   backend:
     image: ghcr.io/2026-f/artbid-backend:latest
     depends_on:
@@ -101,6 +115,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/artbid
       SPRING_DATA_REDIS_HOST: redis
+
 
 volumes:
   artbid-postgres-data:
