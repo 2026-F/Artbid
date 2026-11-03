@@ -10,10 +10,10 @@ public record ArtworkPageResponse(List<ArtworkSummaryResponse> content, int page
 		int totalPages) {
 
 	public static ArtworkPageResponse of(Page<Artwork> page, Map<Long, String> artistNames,
-										 Map<Long, Long> auctionIds) {
+										 Map<Long, Long> auctionIds, Map<Long, java.util.List<com.artbid.media.domain.ArtworkMedia>> media) {
 		List<ArtworkSummaryResponse> content = page.getContent().stream()
 				.map(artwork -> ArtworkSummaryResponse.of(artwork, artistNames.get(artwork.getArtistId()),
-						auctionIds.get(artwork.getId())))
+						auctionIds.get(artwork.getId()), ArtworkImages.primary(artwork, media.getOrDefault(artwork.getId(), List.of()))))
 				.toList();
 		return new ArtworkPageResponse(content, page.getNumber(), page.getSize(), page.getTotalElements(),
 				page.getTotalPages());

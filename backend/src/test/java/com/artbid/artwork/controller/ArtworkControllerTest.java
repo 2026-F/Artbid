@@ -53,7 +53,7 @@ class ArtworkControllerTest {
 		LocalDateTime now = LocalDateTime.now();
 		return new ArtworkDetailResponse(1L, 1L, new ArtworkDetailResponse.ArtistSummary(2L, "김작가", null), title,
 				null, ArtworkCategory.PAINTING, null, null, null, null, null, 1_000_000L, null, null, null,
-				ArtworkStatus.PENDING_REVIEW, List.of(), now, now);
+				ArtworkStatus.PENDING_REVIEW, List.of(), now, now, null);
 	}
 
 	@Test

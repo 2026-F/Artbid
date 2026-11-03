@@ -22,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.artbid.auction.repository.AuctionRepository;
 
 
+import java.util.List;
+import com.artbid.media.domain.ArtworkMedia;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -64,7 +66,14 @@ public class ArtworkService {
 
 	public ArtworkPageResponse getArtworks(ArtworkSearchCondition condition, Pageable pageable) {
 		Page<Artwork> page = artworkRepository.findAll(ArtworkSpecifications.matches(condition), pageable);
-		return ArtworkPageResponse.of(page, findArtistNames(page), findAuctionIds(page));
+		return ArtworkPageResponse.of(page, findArtistNames(page), findAuctionIds(page), findMedia(page));
+	}
+
+	private Map<Long, List<ArtworkMedia>> findMedia(Page<Artwork> page) {
+		var ids = page.getContent().stream().map(Artwork::getId).toList();
+		if (ids.isEmpty()) return Map.of();
+		return artworkMediaRepository.findByArtworkIdInOrderBySortOrderAscIdAsc(ids).stream()
+			.collect(Collectors.groupingBy(ArtworkMedia::getArtworkId));
 	}
 
 	// findArtistNames()랑 똑같은 패턴 — 작품마다 따로 조회 안 하고 한 번에 가져옴
@@ -98,7 +107,9 @@ public class ArtworkService {
 		Artist artist = artwork.getArtistId() == null ? null
 				: artistRepository.findById(artwork.getArtistId()).orElse(null);
 		return ArtworkDetailResponse.of(artwork, artist,
-				artworkMediaRepository.findByArtworkIdOrderBySortOrder(artwork.getId()));
+				artworkMediaRepository.findByArtworkIdOrderBySortOrder(artwork.getId()),
+				auctionRepository.findByArtworkIdIn(List.of(artwork.getId())).stream()
+					.map(Auction::getId).max(Long::compareTo).orElse(null));
 	}
 
 	// 목록의 작가 이름을 작품마다 조회하지 않고 한 번에 가져온다 (N+1 방지)

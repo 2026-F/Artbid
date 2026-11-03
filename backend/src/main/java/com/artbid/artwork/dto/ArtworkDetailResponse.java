@@ -17,7 +17,7 @@ public record ArtworkDetailResponse(Long id, Long consignorId, ArtistSummary art
 		String description, ArtworkCategory category, String medium, Double widthCm, Double heightCm,
 		Double depthCm, Integer productionYear, Long startPrice, Long estimatedPrice, String certificateUrl,
 		String imageUrl, ArtworkStatus status, List<MediaItem> media, LocalDateTime createdAt,
-		LocalDateTime updatedAt) {
+		LocalDateTime updatedAt, Long auctionId) {
 
 	public record ArtistSummary(Long id, String name, String profileImageUrl) {
 	}
@@ -25,7 +25,7 @@ public record ArtworkDetailResponse(Long id, Long consignorId, ArtistSummary art
 	public record MediaItem(Long id, MediaType mediaType, String url, String sourceUrl, Integer sortOrder) {
 	}
 
-	public static ArtworkDetailResponse of(Artwork artwork, Artist artist, List<ArtworkMedia> media) {
+	public static ArtworkDetailResponse of(Artwork artwork, Artist artist, List<ArtworkMedia> media, Long auctionId) {
 		ArtistSummary artistSummary = artist == null ? null
 				: new ArtistSummary(artist.getId(), artist.getName(), artist.getProfileImageUrl());
 		List<MediaItem> mediaItems = media.stream()
@@ -35,7 +35,7 @@ public record ArtworkDetailResponse(Long id, Long consignorId, ArtistSummary art
 		return new ArtworkDetailResponse(artwork.getId(), artwork.getConsignorId(), artistSummary, artwork.getTitle(),
 				artwork.getDescription(), artwork.getCategory(), artwork.getMedium(), artwork.getWidthCm(),
 				artwork.getHeightCm(), artwork.getDepthCm(), artwork.getProductionYear(), artwork.getStartPrice(),
-				artwork.getEstimatedPrice(), artwork.getCertificateUrl(), artwork.getImageUrl(), artwork.getStatus(),
-				mediaItems, artwork.getCreatedAt(), artwork.getUpdatedAt());
+				artwork.getEstimatedPrice(), artwork.getCertificateUrl(), com.artbid.artwork.dto.ArtworkImages.primary(artwork, media), artwork.getStatus(),
+				mediaItems, artwork.getCreatedAt(), artwork.getUpdatedAt(), auctionId);
 	}
 }
