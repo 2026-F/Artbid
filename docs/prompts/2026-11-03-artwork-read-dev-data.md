@@ -4,9 +4,13 @@
 - 관련 이슈: [BE #98](https://github.com/2026-F/Artbid/issues/98), [BE #99](https://github.com/2026-F/Artbid/issues/99), [FE #52](https://github.com/2026-F/frontend/issues/52)
 - 브랜치: `fix/artwork-query-and-dev-data`. 작업 브랜치에서 구현하고 배포 전 검증을 진행했다.
 
-## 목적과 핵심 요청
+## 목적
 
-요약: 사용자가 승인한 1~4단계 중 로컬 개발 데이터 준비와 작품 조회 계약 보완을 구현한다. DB 스키마, 인증/권한/거래 처리 및 FE #53은 변경하지 않는다. 기존 미커밋 파일은 보존한다.
+로컬에서 반복 가능한 개발 데이터를 준비하고 작품 목록·상세의 조회 계약을 일치시킨다.
+
+## 핵심 요청
+
+요약: 승인한 1~4단계 중 로컬 개발 데이터 준비와 작품 조회 계약 보완을 구현한다. DB 스키마, 인증/권한/거래 처리 및 FE #53은 변경하지 않는다. 기존 미커밋 파일은 보존한다. 이후 사용자가 커밋과 PR 생성을 요청했고, 기록의 목적과 핵심 요청은 템플릿대로 분리하도록 요청했다.
 
 > 커밋·푸시·PR 생성·병합·배포는 수행하지 않는다.
 
@@ -21,7 +25,9 @@
 | 전체 DB 초기화 | 제외 | 다른 데이터 보존이 사용자 요구다. 기록한 ID와 실제 식별 정보를 함께 확인한다. |
 | 거래 관계까지 자동 삭제 | 제외 | 후속 입찰/정산 시나리오의 증거를 없애지 않도록 정리를 중단한다. |
 
-## 반영 내용과 코드 리뷰 순서
+## 반영 내용
+
+### 코드 리뷰 순서
 
 1. `backend/src/main/java/com/artbid/artwork/dto/ArtworkDetailResponse.java`: nullable auctionId를 응답에 추가했다. 기존 필드는 유지했다.
 2. `backend/src/main/java/com/artbid/artwork/service/ArtworkService.java`: 목록의 경매/작가/미디어 일괄 조회, 상세의 최대 경매 ID 선택을 확인한다.
