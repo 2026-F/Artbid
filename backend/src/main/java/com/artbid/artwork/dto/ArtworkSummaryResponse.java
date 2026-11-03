@@ -12,9 +12,9 @@ public record ArtworkSummaryResponse(Long id, String title, Long artistId, Strin
 									 ArtworkCategory category, String imageUrl, Long startPrice, Long estimatedPrice, ArtworkStatus status,
 									 Long auctionId) {
 
-	public static ArtworkSummaryResponse of(Artwork artwork, String artistName, Long auctionId) {
+	public static ArtworkSummaryResponse of(Artwork artwork, String artistName, Long auctionId, String primaryImage) {
 		return new ArtworkSummaryResponse(artwork.getId(), artwork.getTitle(), artwork.getArtistId(), artistName,
-				artwork.getCategory(), artwork.getImageUrl(), artwork.getStartPrice(), artwork.getEstimatedPrice(),
+				artwork.getCategory(), primaryImage, artwork.getStartPrice(), artwork.getEstimatedPrice(),
 				artwork.getStatus(), auctionId);
 	}
 }

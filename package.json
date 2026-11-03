@@ -1,0 +1,10 @@
+{
+  "name": "artbid-local-tools",
+  "private": true,
+  "scripts": {
+    "dev:seed": "node scripts/dev-data.mjs seed",
+    "dev:auction:new": "node scripts/dev-data.mjs auction:new",
+    "dev:auction:closing": "node scripts/dev-data.mjs auction:closing",
+    "dev:cleanup": "node scripts/dev-data.mjs cleanup"
+  }
+}

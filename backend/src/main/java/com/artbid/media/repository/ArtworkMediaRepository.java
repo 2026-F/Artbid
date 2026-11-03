@@ -10,6 +10,8 @@ public interface ArtworkMediaRepository extends JpaRepository<ArtworkMedia, Long
 
 	List<ArtworkMedia> findByArtworkIdOrderBySortOrder(Long artworkId);
 
+	List<ArtworkMedia> findByArtworkIdInOrderBySortOrderAscIdAsc(java.util.Collection<Long> artworkIds);
+
 	// 한 번의 폴링에서 확인할 트랜스코딩 진행 중 미디어 (오래된 것부터)
 	List<ArtworkMedia> findTop50ByTranscodeStatusOrderByIdAsc(TranscodeStatus transcodeStatus);
 }
