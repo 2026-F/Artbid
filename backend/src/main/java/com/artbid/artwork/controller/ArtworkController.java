@@ -14,12 +14,14 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.artbid.artwork.exception.ArtworkAuthRequiredException;
 import com.artbid.artwork.exception.ArtworkForbiddenException;
 import com.artbid.member.auth.JwtAuthenticationFilter;
 import com.artbid.member.domain.MemberRole;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.net.URI;
+import java.security.Principal;
 import java.util.Set;
 
 @RestController
@@ -32,8 +34,13 @@ public class ArtworkController {
 	private final ArtworkService artworkService;
 
 	@PostMapping
-	public ResponseEntity<ArtworkDetailResponse> register(@Valid @RequestBody ArtworkCreateRequest request) {
-		ArtworkDetailResponse response = artworkService.register(request);
+	public ResponseEntity<ArtworkDetailResponse> register(@Valid @RequestBody ArtworkCreateRequest request,
+			Principal principal, HttpServletRequest httpRequest) {
+		Long memberId = requireMemberId(principal);
+		if (role(httpRequest) != MemberRole.CONSIGNOR) {
+			throw new ArtworkForbiddenException("판매자(CONSIGNOR)만 작품을 등록할 수 있습니다.");
+		}
+		ArtworkDetailResponse response = artworkService.register(memberId, request);
 		return ResponseEntity.created(URI.create("/api/artworks/" + response.id())).body(response);
 	}
 
@@ -71,8 +78,10 @@ public class ArtworkController {
 	}
 
 	@PatchMapping("/{artworkId}")
-	public ArtworkDetailResponse update(@PathVariable Long artworkId, @Valid @RequestBody ArtworkUpdateRequest request) {
-		return artworkService.update(artworkId, request);
+	public ArtworkDetailResponse update(@PathVariable Long artworkId, @Valid @RequestBody ArtworkUpdateRequest request,
+			Principal principal, HttpServletRequest httpRequest) {
+		Long memberId = requireMemberId(principal);
+		return artworkService.update(artworkId, memberId, role(httpRequest) == MemberRole.ADMIN, request);
 	}
 
 	private Sort toSort(String sort) {
@@ -108,10 +117,26 @@ public class ArtworkController {
 
 	// 로그인한 회원의 role이 ADMIN인지 확인.
 	private void requireAdmin(HttpServletRequest request) {
-		Object role = request.getAttribute(JwtAuthenticationFilter.ROLE_ATTRIBUTE);
-		if (role != MemberRole.ADMIN) {
+		if (role(request) != MemberRole.ADMIN) {
 			throw new ArtworkForbiddenException();
 		}
+	}
+
+	private Object role(HttpServletRequest request) {
+		return request.getAttribute(JwtAuthenticationFilter.ROLE_ATTRIBUTE);
+	}
+
+	// Principal.name에는 JwtAuthenticationFilter가 검증한 Member ID가 들어 있다 (BidController와 같은 방식).
+	private Long requireMemberId(Principal principal) {
+		if (principal != null) {
+			try {
+				long id = Long.parseLong(principal.getName());
+				if (id > 0) return id;
+			} catch (NumberFormatException ignored) {
+				// 아래에서 인증 필요 예외로 처리
+			}
+		}
+		throw new ArtworkAuthRequiredException();
 	}
 
 

@@ -31,7 +31,8 @@ public class AuctionController {
 	}
 
 	@PostMapping
-	public Auction createAuction(@RequestBody AuctionCreateRequest request) {
+	public Auction createAuction(@RequestBody AuctionCreateRequest request, HttpServletRequest httpRequest) {
+		requireAdmin(httpRequest);
 		return auctionService.createAuction(
 				request.artworkId(),
 				request.startPrice(),

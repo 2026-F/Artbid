@@ -9,8 +9,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.artwork.domain.Artwork;
+import com.artbid.artwork.domain.ArtworkStatus;
+import com.artbid.common.exception.AuctionCreationConflictException;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -24,14 +27,24 @@ public class AuctionService {
 				.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + id));
 	}
 
+	@Transactional
 	public Auction createAuction(Long artworkId,
 								 Long startPrice,
 								 Long minBidUnit,
 								 LocalDateTime previewStart,
 								 LocalDateTime previewEnd,
 								 LocalDateTime auctionEndAt) {
-		artworkRepository.findById(artworkId)
+		Artwork artwork = artworkRepository.findById(artworkId)
 				.orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다 :" + artworkId));
+		// 심사 승인된(PREVIEW) 작품에만 경매를 연다. 마감되지 않은 경매가 이미 있으면 새로 열지 않는다.
+		if (artwork.getStatus() != ArtworkStatus.PREVIEW) {
+			throw new AuctionCreationConflictException("승인된(PREVIEW) 작품에만 경매를 열 수 있습니다. 현재 상태: " + artwork.getStatus());
+		}
+		boolean hasOpenAuction = auctionRepository.findByArtworkIdIn(List.of(artworkId)).stream()
+				.anyMatch(existing -> existing.getStatus() != AuctionStatus.CLOSED);
+		if (hasOpenAuction) {
+			throw new AuctionCreationConflictException("이미 마감되지 않은 경매가 있는 작품입니다: " + artworkId);
+		}
 
 		Auction auction = Auction.create(artworkId, startPrice, minBidUnit, previewStart, previewEnd, auctionEndAt, LocalDateTime.now());
 
