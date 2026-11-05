@@ -6,12 +6,15 @@ import com.artbid.auction.live.AuctionLiveService;
 import com.artbid.auction.live.AuctionLiveView;
 import com.artbid.auction.service.AuctionService;
 import com.artbid.common.exception.GlobalExceptionHandler;
+import com.artbid.member.auth.JwtAuthenticationFilter;
+import com.artbid.member.domain.MemberRole;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,7 +24,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -69,5 +74,20 @@ class AuctionControllerLiveTest {
 
 		mockMvc.perform(get("/api/auctions/99/live"))
 				.andExpect(status().isNotFound());
+	}
+
+	private static final String CREATE_BODY = """
+			{"artworkId":10,"startPrice":100000,"minBidUnit":10000,
+			 "previewStart":"2026-11-10T10:00:00","previewEnd":"2026-11-11T10:00:00","auctionEndAt":"2026-11-12T10:00:00"}
+			""";
+
+	@Test
+	void 비관리자는_경매를_생성할_수_없다() throws Exception {
+		mockMvc.perform(post("/api/auctions").contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
+				.andExpect(status().isForbidden());
+		mockMvc.perform(post("/api/auctions").contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY)
+						.requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.CONSIGNOR))
+				.andExpect(status().isForbidden());
+		verifyNoInteractions(auctionService);
 	}
 }

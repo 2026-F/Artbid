@@ -8,6 +8,7 @@ import com.artbid.artwork.dto.ArtworkCreateRequest;
 import com.artbid.artwork.dto.ArtworkDetailResponse;
 import com.artbid.artwork.dto.ArtworkPageResponse;
 import com.artbid.artwork.dto.ArtworkUpdateRequest;
+import com.artbid.artwork.exception.ArtworkForbiddenException;
 import com.artbid.artwork.exception.ArtworkNotFoundException;
 import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.artwork.repository.ArtworkSearchCondition;
@@ -41,11 +42,11 @@ public class ArtworkService {
 
 
 	@Transactional
-	public ArtworkDetailResponse register(ArtworkCreateRequest request) {
+	public ArtworkDetailResponse register(Long consignorId, ArtworkCreateRequest request) {
 		requireArtistExists(request.artistId());
 
 		Artwork artwork = Artwork.builder()
-				.consignorId(request.consignorId())
+				.consignorId(consignorId)
 				.artistId(request.artistId())
 				.title(request.title())
 				.description(request.description())
@@ -91,8 +92,11 @@ public class ArtworkService {
 	}
 
 	@Transactional
-	public ArtworkDetailResponse update(Long artworkId, ArtworkUpdateRequest request) {
+	public ArtworkDetailResponse update(Long artworkId, Long memberId, boolean admin, ArtworkUpdateRequest request) {
 		Artwork artwork = findArtwork(artworkId);
+		if (!admin && !Objects.equals(artwork.getConsignorId(), memberId)) {
+			throw new ArtworkForbiddenException("작품을 등록한 위탁자만 수정할 수 있습니다.");
+		}
 		if (request.artistId() != null) {
 			requireArtistExists(request.artistId());
 		}
