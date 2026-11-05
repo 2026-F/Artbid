@@ -5,10 +5,9 @@ import jakarta.validation.constraints.*;
 
 /**
  * 작품 등록 요청.
- * consignorId는 인증(#33)이 붙기 전까지 임시로 요청 본문으로 받는다 — 인증 연동 후 로그인 사용자로 대체.
+ * 위탁자는 요청 본문이 아니라 로그인 토큰의 회원으로 정한다. 본문에 consignorId를 보내도 무시된다.
  */
 public record ArtworkCreateRequest(
-		@NotNull Long consignorId,
 		@NotNull Long artistId,
 		@NotBlank @Size(max = 100) String title,
 		@Size(max = 2000) String description,
