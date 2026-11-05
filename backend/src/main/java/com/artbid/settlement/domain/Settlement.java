@@ -67,6 +67,19 @@ public class Settlement {
 		return true;
 	}
 
+	/**
+	 * 경매를 다시 열면서 미결제 정산을 무효로 한다. 바꿨으면 true.
+	 * expire()와 같은 이유로 FAILED를 쓰고, expiredAt은 비워 결제 기한 만료와 구분한다.
+	 * 진행 중인 결제(결과 불명)가 있는지는 호출하는 쪽에서 확인한다.
+	 */
+	public boolean cancelForReopen() {
+		if (paymentStatus != PaymentStatus.PENDING) {
+			return false;
+		}
+		paymentStatus = PaymentStatus.FAILED;
+		return true;
+	}
+
 	public void markPaid() {
 		if (paymentStatus == PaymentStatus.PAID) {
 			return;

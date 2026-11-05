@@ -200,6 +200,15 @@ public class Artwork {
 		this.status = ArtworkStatus.SOLD;
 	}
 
+	// 마감된 경매의 작품을 새 경매로 다시 열 때 호출한다. 유찰 작품은 IN_AUCTION, 낙찰 작품은 SOLD로 남아 있다.
+	// 관리자가 내린(REJECTED) 작품은 다시 열 수 없다.
+	public void reopenForAuction() {
+		if (status != ArtworkStatus.PREVIEW && status != ArtworkStatus.IN_AUCTION && status != ArtworkStatus.SOLD) {
+			throw new ArtworkNotEditableException(id, status);
+		}
+		this.status = ArtworkStatus.IN_AUCTION;
+	}
+
 	// 경매가 실제로 열렸을 때(관리자가 경매 상태를 ONGOING으로 바꿀 때) 호출.
 	// PREVIEW 상태에서만 "경매 중"으로 넘어갈 수 있다.
 	public void markInAuction() {

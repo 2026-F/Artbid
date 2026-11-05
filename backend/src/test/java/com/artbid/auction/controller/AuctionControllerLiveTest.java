@@ -4,8 +4,10 @@ import com.artbid.auction.domain.AuctionStatus;
 import com.artbid.auction.live.AuctionLiveReason;
 import com.artbid.auction.live.AuctionLiveService;
 import com.artbid.auction.live.AuctionLiveView;
+import com.artbid.auction.service.AuctionReopenService;
 import com.artbid.auction.service.AuctionService;
 import com.artbid.common.exception.GlobalExceptionHandler;
+import com.artbid.common.exception.InvalidAuctionRequestException;
 import com.artbid.member.auth.JwtAuthenticationFilter;
 import com.artbid.member.domain.MemberRole;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,6 +38,8 @@ class AuctionControllerLiveTest {
 	private AuctionService auctionService;
 	@Mock
 	private AuctionLiveService auctionLiveService;
+	@Mock
+	private AuctionReopenService auctionReopenService;
 
 	private MockMvc mockMvc;
 
@@ -43,7 +47,7 @@ class AuctionControllerLiveTest {
 	void setUp() {
 		MockitoAnnotations.openMocks(this);
 		ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
-		mockMvc = MockMvcBuilders.standaloneSetup(new AuctionController(auctionService, auctionLiveService))
+		mockMvc = MockMvcBuilders.standaloneSetup(new AuctionController(auctionService, auctionLiveService, auctionReopenService))
 				.setControllerAdvice(new GlobalExceptionHandler())
 				.setMessageConverters(
 						new StringHttpMessageConverter(StandardCharsets.UTF_8),
@@ -89,5 +93,27 @@ class AuctionControllerLiveTest {
 						.requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.CONSIGNOR))
 				.andExpect(status().isForbidden());
 		verifyNoInteractions(auctionService);
+	}
+
+	@Test
+	void 비관리자는_경매를_다시_열_수_없다() throws Exception {
+		mockMvc.perform(post("/api/auctions/1/reopen").contentType(MediaType.APPLICATION_JSON)
+						.content("{\"durationMinutes\":60}"))
+				.andExpect(status().isForbidden());
+		mockMvc.perform(post("/api/auctions/1/reopen").contentType(MediaType.APPLICATION_JSON)
+						.content("{\"durationMinutes\":60}")
+						.requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.CONSIGNOR))
+				.andExpect(status().isForbidden());
+		verifyNoInteractions(auctionReopenService);
+	}
+
+	@Test
+	void 진행_시간이_잘못되면_400을_반환한다() throws Exception {
+		when(auctionReopenService.reopen(1L, 0)).thenThrow(new InvalidAuctionRequestException("진행 시간을 확인해주세요."));
+
+		mockMvc.perform(post("/api/auctions/1/reopen").contentType(MediaType.APPLICATION_JSON)
+						.content("{\"durationMinutes\":0}")
+						.requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.ADMIN))
+				.andExpect(status().isBadRequest());
 	}
 }

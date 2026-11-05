@@ -81,6 +81,11 @@ public class AuctionService {
 		Auction auction = auctionRepository.findById(auctionId)
 				.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + auctionId));
 
+		// 마감된 경매를 되살리면 마감 시각이 지나 있어 곧바로 다시 마감되고 정산이 또 생긴다. 재오픈은 새 경매로 한다.
+		if (auction.getStatus() == AuctionStatus.CLOSED && status != AuctionStatus.CLOSED) {
+			throw new AuctionCreationConflictException("마감된 경매는 상태를 바꿀 수 없습니다. 다시 열기를 사용해주세요.");
+		}
+
 		auction.overrideStatus(status);
 
 		if (status == AuctionStatus.ONGOING) {

@@ -22,6 +22,8 @@ spring:
 
   kafka:
     bootstrap-servers: localhost:9092
+    listener:
+      auto-startup: ${KAFKA_LISTENER_AUTO_STARTUP:false} # Kafka를 쓰지 않는 동안 리스너를 시작하지 않는다
     consumer:
       group-id: artbid-backend
       auto-offset-reset: earliest
@@ -49,6 +51,9 @@ management:
         http.server.requests: true   # p95, p99 응답시간 계산용 히스토그램
 
 app:
+  outbox:
+    publisher:
+      enabled: ${OUTBOX_PUBLISHER_ENABLED:false} # Kafka를 쓰지 않는 동안 outbox 발행을 끈다
   settlement:
     seller-commission-rate: 0.10 # 위탁자 지급 시 떼는 판매 수수료율. 정책 미정이라 임시값
     batch:
