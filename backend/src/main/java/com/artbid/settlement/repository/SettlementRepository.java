@@ -18,6 +18,11 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
 
 	Optional<Settlement> findByAuctionId(Long auctionId);
 
+	// 경매 재오픈: 결제 시작도 같은 정산 행을 잠그므로, 이 잠금 안에서는 새 결제가 끼어들 수 없다
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select s from Settlement s where s.auctionId = :auctionId order by s.id")
+	List<Settlement> findAllByAuctionIdForUpdate(@Param("auctionId") Long auctionId);
+
 	// 정산 배치: 결제 기한이 지난 미결제 정산 ID
 	@Query("select s.id from Settlement s where s.paymentStatus = :status and s.paymentDeadlineAt <= :now order by s.id")
 	List<Long> findIdsByStatusAndDeadlineAtOrBefore(@Param("status") PaymentStatus status, @Param("now") LocalDateTime now);

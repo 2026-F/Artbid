@@ -51,6 +51,11 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
     }
 
+    @ExceptionHandler(InvalidAuctionRequestException.class)
+    public ResponseEntity<String> handleInvalidAuctionRequest(InvalidAuctionRequestException e) {
+        return ResponseEntity.badRequest().body(e.getMessage());
+    }
+
     @ExceptionHandler(AuctionCreationConflictException.class)
     public ResponseEntity<String> handleAuctionCreationConflict(AuctionCreationConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
