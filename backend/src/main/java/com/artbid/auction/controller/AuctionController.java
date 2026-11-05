@@ -6,6 +6,7 @@ import com.artbid.auction.dto.AuctionDetailResponse;
 import com.artbid.auction.live.AuctionLiveReason;
 import com.artbid.auction.live.AuctionLiveService;
 import com.artbid.auction.live.AuctionLiveView;
+import com.artbid.auction.service.AuctionReopenService;
 import com.artbid.auction.service.AuctionService;
 import com.artbid.common.exception.AuctionForbiddenException;
 import com.artbid.member.auth.JwtAuthenticationFilter;
@@ -24,6 +25,7 @@ public class AuctionController {
 
 	private final AuctionService auctionService;
 	private final AuctionLiveService auctionLiveService;
+	private final AuctionReopenService auctionReopenService;
 
 	@GetMapping("/{id}/current-price")
 	public Auction getCurrentPrice(@PathVariable Long id) {
@@ -71,6 +73,18 @@ public class AuctionController {
 	}
 
 	public record AuctionStatusUpdateRequest(AuctionStatus status) {
+	}
+
+	// 마감된 경매의 작품을 시작가부터 새 경매로 바로 연다. 응답은 새로 만든 경매다.
+	// 마감 시각 대신 진행 시간(분)을 받아 서버와 브라우저의 시간대 차이에 영향받지 않는다.
+	@PostMapping("/{id}/reopen")
+	public Auction reopen(@PathVariable Long id, @RequestBody AuctionReopenRequest request,
+			HttpServletRequest httpRequest) {
+		requireAdmin(httpRequest);
+		return auctionReopenService.reopen(id, request.durationMinutes());
+	}
+
+	public record AuctionReopenRequest(Integer durationMinutes) {
 	}
 
 	// ArtworkController의 requireAdmin과 같은 패턴 — 로그인한 회원의 role이 ADMIN인지 확인.

@@ -82,4 +82,15 @@ class AuctionCreationTest {
 
 		verify(auctions).save(any(Auction.class));
 	}
+
+	@Test
+	void 마감된_경매의_상태는_되돌릴_수_없다() {
+		Auction closed = mock(Auction.class);
+		when(closed.getStatus()).thenReturn(AuctionStatus.CLOSED);
+		when(auctions.findById(5L)).thenReturn(Optional.of(closed));
+
+		assertThatThrownBy(() -> service.updateStatus(5L, AuctionStatus.ONGOING))
+				.isInstanceOf(AuctionCreationConflictException.class);
+		verify(closed, never()).overrideStatus(any());
+	}
 }
