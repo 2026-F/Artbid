@@ -62,8 +62,7 @@ public class AuctionController {
 		return auctionLiveService.getView(id, AuctionLiveReason.SNAPSHOT);
 	}
 
-	// 어드민이 경매 상태를 직접 지정 (예: PREVIEW -> ONGOING으로 열기, 강제 CLOSED 등).
-	// 지금은 시간에 맞춰 자동으로 상태가 바뀌는 스케줄러가 없어서 이 엔드포인트로 수동 전환한다.
+	// 어드민이 경매를 수동 시작할 수 있다. 마감은 스케줄러에서 처리한다.
 	@PatchMapping("/{id}/status")
 	public ResponseEntity<Void> updateStatus(@PathVariable Long id, @RequestBody AuctionStatusUpdateRequest request,
 			HttpServletRequest httpRequest) {
