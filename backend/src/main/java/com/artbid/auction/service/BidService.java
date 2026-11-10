@@ -87,15 +87,24 @@ public class BidService {
 							+ (auction.getCurrentPrice() + auction.getMinBidUnit()) + "원 이상 입력하세요.");
 		}
 
-		// ------------------------------------------------------------------
-		// TODO: 이 아래는 아직 예전 방식(동기 DB 반영) 그대로다.
-		// 이번 단계 목표는 "Redis 기반 판정"이 동시성 문제를 실제로 줄여주는지
-		// k6로 검증하는 것까지라서, DB 반영/안티 스나이핑/입찰 내역 저장은
-		// 다음 단계에서 비동기로 옮긴다. 지금은 auction.applyBid()가 내부적으로
-		// currentPrice를 다시 한번 검증하는 중복이 있는데, 당장은 안전망으로 남겨둔다.
-		// ------------------------------------------------------------------
 		LocalDateTime now = LocalDateTime.now();
-		boolean extended = auction.applyBid(price, now);
+
+		// Hibernate가 이 엔티티를 트랜잭션 끝에서 자동으로(dirty checking) 다시 써버리면
+		// 아래 조건부 UPDATE로 거는 보호가 무의미해진다. 그래서 영속성 컨텍스트에서
+		// 떼어낸 뒤, 그 복사본 위에서만 계산하고 실제 DB 반영은 조건부 UPDATE 하나로만 한다.
+		entityManager.detach(auction);
+		boolean extended = auction.applyBid(price, now); // 메모리 상에서만 검증 + 계산
+
+		int updatedRows = auctionRepository.updateIfHigherPrice(
+				auctionId, auction.getCurrentPrice(), auction.getAuctionEndAt(), auction.getStatus());
+
+		if (updatedRows == 0) {
+			// Redis에서는 이겼지만, DB에 반영하는 그 짧은 틈에 다른 요청이 먼저
+			// (같거나 더 높은 가격으로) 반영해버린 경우. 데이터가 거꾸로 가는 걸
+			// 막기 위해 이 요청은 실패 처리한다.
+			throw new BidTemporarilyUnavailableException();
+		}
+
 		bidRepository.save(new Bid(auctionId, bidderId, price, now));
 
 		BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), extended);
