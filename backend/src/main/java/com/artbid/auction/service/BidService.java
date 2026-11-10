@@ -35,21 +35,7 @@ public class BidService {
 	private final BidRepository bidRepository;
 	private final AuctionSseRegistry sseRegistry;
 	private final ApplicationEventPublisher eventPublisher;
-
-	@Transactional
-	public BidResult submitBid(Long auctionId, Long bidderId, Long price) {
-		Auction auction = lockAuctionOrThrow(auctionId);
-
-		LocalDateTime now = LocalDateTime.now();
-		boolean extended = auction.applyBid(price, now); // 검증 실패 시 InvalidBidException
-
-		bidRepository.save(new Bid(auctionId, bidderId, price, now));
-
-		BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), extended);
-		broadcastAfterCommit(auctionId, result); // 기존 화면 호환용 이름 없는 이벤트. 유지한다.
-		publishLiveChanged(auction, now, AuctionLiveReason.BID, extended);
-		return result;
-	}
+	private final AuctionPriceRedisService priceRedisService;
 
 	//입찰 취소
 	@Transactional
@@ -76,6 +62,45 @@ public class BidService {
 		BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), false);
 		broadcastAfterCommit(auctionId, result); // 기존 화면 호환용 이름 없는 이벤트. 유지한다.
 		publishLiveChanged(auction, now, AuctionLiveReason.BID_CANCELED, false);
+		return result;
+	}
+
+	@Transactional
+	public BidResult submitBid(Long auctionId, Long bidderId, Long price) {
+		// 더 이상 findByIdForUpdate(락 거는 조회)가 아니라 그냥 findById다.
+		// "누가 이겼는지" 판정은 이제 아래 Redis 호출이 담당한다.
+		Auction auction = auctionRepository.findById(auctionId)
+				.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + auctionId));
+
+		AuctionPriceRedisService.UpdateResult redisResult =
+				priceRedisService.tryUpdateCurrentPrice(auctionId, price, auction.getMinBidUnit());
+
+		if (redisResult == AuctionPriceRedisService.UpdateResult.CACHE_MISS) {
+			// Redis에 캐시가 비어있던 경우: DB 값으로 채우고 한 번 더 시도
+			priceRedisService.primeCurrentPrice(auctionId, auction.getCurrentPrice());
+			redisResult = priceRedisService.tryUpdateCurrentPrice(auctionId, price, auction.getMinBidUnit());
+		}
+
+		if (redisResult == AuctionPriceRedisService.UpdateResult.REJECTED) {
+			throw new InvalidBidException(
+					"입찰가가 너무 낮습니다. 현재가 " + auction.getCurrentPrice() + "원, 최소 "
+							+ (auction.getCurrentPrice() + auction.getMinBidUnit()) + "원 이상 입력하세요.");
+		}
+
+		// ------------------------------------------------------------------
+		// TODO: 이 아래는 아직 예전 방식(동기 DB 반영) 그대로다.
+		// 이번 단계 목표는 "Redis 기반 판정"이 동시성 문제를 실제로 줄여주는지
+		// k6로 검증하는 것까지라서, DB 반영/안티 스나이핑/입찰 내역 저장은
+		// 다음 단계에서 비동기로 옮긴다. 지금은 auction.applyBid()가 내부적으로
+		// currentPrice를 다시 한번 검증하는 중복이 있는데, 당장은 안전망으로 남겨둔다.
+		// ------------------------------------------------------------------
+		LocalDateTime now = LocalDateTime.now();
+		boolean extended = auction.applyBid(price, now);
+		bidRepository.save(new Bid(auctionId, bidderId, price, now));
+
+		BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), extended);
+		broadcastAfterCommit(auctionId, result);
+		publishLiveChanged(auction, now, AuctionLiveReason.BID, extended);
 		return result;
 	}
 

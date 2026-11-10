@@ -1,4 +1,4 @@
-package com.artbid.config;
+package com.artbid.infra.redis;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
