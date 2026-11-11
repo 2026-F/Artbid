@@ -368,4 +368,26 @@ import static org.mockito.Mockito.lenient;
 		order.verify(entityManager).detach(auction);
 		order.verify(auctionRepository).updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any());
 	}
+
+	@Test
+	void DB_반영_중_행_락을_3초_안에_못_얻으면_Redis_캐시를_지우고_503으로_바꿔_던진다() {
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
+				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
+		// 다른 트랜잭션이 행을 잡고 있어서 lock_timeout(3초)이 난 상황
+		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
+				.thenThrow(new PessimisticLockingFailureException("lock timeout 시뮬레이션"));
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(BidTemporarilyUnavailableException.class);
+
+		// UPDATE 전에 같은 트랜잭션에서 3초 제한을 걸었는지
+		InOrder order = inOrder(entityManager, auctionRepository);
+		order.verify(entityManager).createNativeQuery("SET LOCAL lock_timeout = '3000ms'");
+		order.verify(auctionRepository).updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any());
+		// Redis는 이겼다고 기록했는데 DB엔 못 들어갔으니 캐시를 지워야 한다
+		verify(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
+		verify(eventPublisher, never()).publishEvent(any(Object.class));
+	}
 }

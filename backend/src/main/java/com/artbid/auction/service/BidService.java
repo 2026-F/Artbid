@@ -36,6 +36,11 @@ public class BidService {
 	@PersistenceContext
 	private EntityManager entityManager;
 
+	// 같은 경매 행을 다른 트랜잭션(마감, 입찰 취소, 재오픈 등)이 잡고 있을 때 최대 3초까지만 기다린다.
+	// 넘기면 Postgres가 lock_timeout 에러를 내고, 우리는 503(BidTemporarilyUnavailableException)으로 돌려준다.
+	// SET LOCAL이라 이 트랜잭션 안에서만 적용되고, 커밋/롤백되면 원래 설정으로 돌아간다.
+	private static final String LOCK_TIMEOUT_SQL = "SET LOCAL lock_timeout = '3000ms'";
+
 	private final AuctionRepository auctionRepository;
 	private final BidRepository bidRepository;
 	private final AuctionSseRegistry sseRegistry;
@@ -126,6 +131,11 @@ public class BidService {
 		TransactionTemplate writeTransaction = new TransactionTemplate(transactionManager);
 		try {
 			return writeTransaction.execute(status -> {
+				// 조건부 UPDATE도 행 락을 잡는다. 다른 트랜잭션이 이 행을 잡고 있으면 그게 끝날 때까지 기다리는데,
+				// 제한이 없으면 무한정 기다린다(Redis 전환 때 비관적 락과 함께 이 3초 제한이 빠졌었다).
+				// 예전과 같은 기준으로 3초만 기다리고, 넘기면 아래 catch에서 503으로 바꾼다.
+				entityManager.createNativeQuery(LOCK_TIMEOUT_SQL).executeUpdate();
+
 				int updatedRows = auctionRepository.updateIfHigherPrice(
 						auctionId, auction.getCurrentPrice(), auction.getAuctionEndAt(), auction.getStatus(), expectedStatus);
 
@@ -148,20 +158,20 @@ public class BidService {
 
 		} catch (BidTemporarilyUnavailableException e) {
 			throw e; // 위 설명대로 Redis는 이미 맞는 상태라 보정 불필요
+		} catch (PessimisticLockingFailureException e) {
+			// 3초 안에 행 락을 못 얻었다. Redis는 이 입찰이 "이겼다"고 기록했는데 DB에는 못 들어간 상태라
+			// Redis가 DB보다 앞서 있다. 캐시를 지워서 다음 요청이 DB 값으로 다시 채우게 하고,
+			// 사용자에게는 예전 비관적 락 때와 같은 503("잠시 후 다시 시도")을 돌려준다.
+			invalidatePriceCacheQuietly(auctionId);
+			throw new BidTemporarilyUnavailableException();
 		} catch (RuntimeException e) {
 			// 예상 못한 실패(DB 에러 등) — Redis만 "이겼다"고 알고 있고 DB엔 반영 안 된 상태로
 			// 남을 수 있다. 이 트랜잭션은 이미 실패한(Postgres 기준 aborted) 상태일 수 있어서,
 			// 같은 트랜잭션 안에서 DB를 다시 읽어 되돌리려 하면 그 조회마저 실패해 원래 예외를
 			// 가려버릴 수 있다. 그래서 DB를 다시 읽지 않고 Redis 캐시를 비운다 — 다음 요청이
-			// CACHE_MISS로 떨어지면서 새 트랜잭션에서 DB 값으로 다시 채워진다. 이 보정 자체가
-			// 실패해도 원래 예외는 그대로 전파되게 따로 감싼다.
-			try {
-				priceRedisService.invalidateCurrentPrice(auctionId);
-			} catch (RuntimeException redisEx) {
-				// 보정 실패는 로그로만 남기고 원래 예외를 덮지 않는다.
-				log.warn("[입찰] auctionId={} DB 반영 실패 후 Redis 현재가 캐시 삭제도 실패: {}",
-						auctionId, redisEx.getMessage());
-			}
+			// CACHE_MISS로 떨어지면서 새 트랜잭션에서 DB 값으로 다시 채워진다. 캐시 삭제가
+			// 실패해도 원래 예외를 덮지 않도록 invalidatePriceCacheQuietly는 예외를 던지지 않는다.
+			invalidatePriceCacheQuietly(auctionId);
 			throw e;
 		}
 	}
@@ -175,7 +185,7 @@ public class BidService {
 
 	// submitBid/cancelBid 둘 다 "Auction 행 락 걸고 없으면 예외, 락 대기 타임아웃되면 다른 예외" 패턴이 똑같아서 추출
 	private Auction lockAuctionOrThrow(Long auctionId) {
-		entityManager.createNativeQuery("SET LOCAL lock_timeout = '3000ms'").executeUpdate();
+		entityManager.createNativeQuery(LOCK_TIMEOUT_SQL).executeUpdate();
 		try {
 			return auctionRepository.findByIdForUpdate(auctionId)
 					.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + auctionId));
@@ -213,13 +223,15 @@ public class BidService {
 		}
 	}
 
-	// 취소는 이미 커밋됐으므로, Redis 장애로 캐시 삭제가 실패해도 예외를 밖으로 던지지 않는다.
-	// 대신 이 경우 Redis에 취소 전 가격이 남아 정상 입찰이 거절될 수 있으니 로그로 추적할 수 있게 남긴다.
+	// Redis 현재가 캐시를 지우되, 실패해도 예외를 밖으로 던지지 않는다.
+	// - 입찰 취소: 취소는 이미 커밋됐으니 캐시 삭제 실패로 취소를 실패시킬 이유가 없다.
+	// - 입찰 DB 반영 실패: 원래 예외(또는 503)를 그대로 돌려줘야 하므로 삭제 실패가 그걸 덮으면 안 된다.
+	// 대신 이 경우 Redis 값이 DB와 달라 정상 입찰이 거절될 수 있으니 로그로 추적할 수 있게 남긴다.
 	private void invalidatePriceCacheQuietly(Long auctionId) {
 		try {
 			priceRedisService.invalidateCurrentPrice(auctionId);
 		} catch (RuntimeException e) {
-			log.warn("[입찰 취소] auctionId={} Redis 현재가 캐시 삭제 실패, 캐시에 취소 전 가격이 남았을 수 있음: {}",
+			log.warn("[입찰] auctionId={} Redis 현재가 캐시 삭제 실패, 캐시가 DB와 다를 수 있음: {}",
 					auctionId, e.getMessage());
 		}
 	}
