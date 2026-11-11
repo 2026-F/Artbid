@@ -15,6 +15,11 @@ spring:
       maximum-pool-size: 30
 
   jpa:
+    # OSIV를 끈다. 켜진 채로 두면 요청이 끝날 때까지(뷰 렌더링까지) 영속성 컨텍스트가
+    # 스레드에 붙어있을 수 있고, 그 중간에 Redis 호출 같은 DB와 무관한 작업이 끼면
+    # 똑같이 '커넥션을 쥔 채로 기다리는' 문제가 재현된다. submitBid의 트랜잭션 경계를
+    # 직접 좁혀놔도 OSIV가 또 다른 경로로 커넥션을 오래 붙잡고 있을 수 있어서 같이 끈다.
+    open-in-view: false
     hibernate:
       ddl-auto: update
     show-sql: true
