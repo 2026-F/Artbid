@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main, develop]
 
+# 같은 브랜치/PR에 커밋을 연달아 푸시했을 때 이전 실행이 자동으로 취소되도록 함.
+# 이게 없으면 푸시할 때마다 실행이 쌓여서, 이미 의미 없어진(뒤이은 커밋으로 덮어써진)
+# 실행들이 큐를 계속 점유하고 최신 실행은 한참 기다리게 된다.
+# pull_request 이벤트에서는 github.ref가 PR마다 바뀌는 merge ref라 head_ref(PR의 소스 브랜치)를
+# 우선 쓰고, push 이벤트(head_ref 없음)에서는 ref(브랜치)로 묶는다.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
