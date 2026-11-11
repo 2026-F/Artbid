@@ -9,6 +9,10 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       connection-timeout: 3000   # 기본 30초 -> 3초로 단축
+      # 기본값(10)은 동시 접속이 수백 단위로 몰리면 금방 pending이 쌓인다.
+      # docker-compose.yml의 SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE가 있으면 그 값이 우선 적용되고,
+      # 여기 값은 그게 없을 때(로컬 실행 등)의 기본값 역할만 한다.
+      maximum-pool-size: 30
 
   jpa:
     hibernate:

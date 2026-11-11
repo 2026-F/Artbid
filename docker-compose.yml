@@ -116,6 +116,10 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/artbid
       SPRING_DATA_REDIS_HOST: redis
+      # 기본값(10)이 k6 부하테스트에서 바로 꽉 차서 pending이 계속 쌓이는 걸 확인함.
+      # Postgres max_connections=100이라 이 정도는 여유 있음. 값은 docker-compose.yml만
+      # 고쳐서 바로 테스트 가능 (이미지 재빌드 불필요 — git pull + up -d --force-recreate면 적용됨).
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 30
 
 
 volumes:
