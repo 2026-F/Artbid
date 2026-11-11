@@ -187,7 +187,7 @@ import static org.mockito.Mockito.lenient;
 		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
 		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
 				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
-		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any()))
+		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
 				.thenReturn(1);
 
 		bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L);

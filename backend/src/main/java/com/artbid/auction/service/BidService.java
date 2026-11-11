@@ -1,6 +1,7 @@
 package com.artbid.auction.service;
 
 import com.artbid.auction.domain.Auction;
+import com.artbid.auction.domain.AuctionStatus;
 import com.artbid.auction.domain.Bid;
 import com.artbid.auction.live.AuctionLiveChangedEvent;
 import com.artbid.auction.live.AuctionLiveReason;
@@ -97,17 +98,21 @@ public class BidService {
 			// Hibernate가 이 엔티티를 트랜잭션 끝에서 자동으로(dirty checking) 다시 써버리면
 			// 아래 조건부 UPDATE로 거는 보호가 무의미해진다. 그래서 영속성 컨텍스트에서
 			// 떼어낸 뒤, 그 복사본 위에서만 계산하고 실제 DB 반영은 조건부 UPDATE 하나로만 한다.
+			// expectedStatus는 "이 요청이 읽었던 시점의 상태"를 그대로 보존해둔 것 — 아래
+			// UPDATE가 그 사이 관리자가 상태를 바꿔놓은 경우를 잡아낼 수 있게 해준다.
+			AuctionStatus expectedStatus = auction.getStatus();
 			entityManager.detach(auction);
 			boolean extended = auction.applyBid(price, now); // 메모리 상에서만 검증 + 계산
 
 			int updatedRows = auctionRepository.updateIfHigherPrice(
-					auctionId, auction.getCurrentPrice(), auction.getAuctionEndAt(), auction.getStatus());
+					auctionId, auction.getCurrentPrice(), auction.getAuctionEndAt(), auction.getStatus(), expectedStatus);
 
 			if (updatedRows == 0) {
 				// Redis에서는 이겼지만, DB에 반영하는 그 짧은 틈에 다른 요청이 먼저
-				// (같거나 더 높은 가격으로) 반영해버린 경우. Redis가 들고 있는 값은
-				// 여전히 전역적으로 맞으므로(그 다른 요청도 Redis를 거쳐왔으니) 되돌릴
-				// 필요 없이 이 요청만 실패 처리하면 된다.
+				// (같거나 더 높은 가격으로) 반영했거나, 관리자가 경매 상태를 바꿔놓은 경우다.
+				// 두 경우 다 Redis 값을 되돌릴 필요는 없다 — 전자는 더 높은 가격이 이미
+				// Redis를 거쳐왔으니 여전히 맞고, 후자는 가격 자체는 안 바뀌었으니 역시 맞다.
+				// 이 요청만 실패 처리하면 된다.
 				throw new BidTemporarilyUnavailableException();
 			}
 
