@@ -23,6 +23,8 @@ import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.Limit;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -273,5 +276,75 @@ import static org.mockito.Mockito.lenient;
 		verify(eventPublisher).publishEvent(captor.capture());
 		assertThat(captor.getValue().reason()).isEqualTo(AuctionLiveReason.BID_CANCELED);
 		assertThat(captor.getValue().state().currentPrice()).isEqualTo(12_000L);
+	}
+
+	// cancelBid가 성공하는 공통 상황: 내 최근 입찰(15,000)이 현재가이고, 취소하면 12,000으로 되돌아간다.
+	private void stubCancelableAuction() {
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		Bid latestBid = new Bid(AUCTION_ID, BIDDER_ID, 15_000L, LocalDateTime.now());
+		Bid remainingTopBid = new Bid(AUCTION_ID, 20L, 12_000L, LocalDateTime.now().minusMinutes(1));
+
+		when(auctionRepository.findByIdForUpdate(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(bidRepository.findMyLatestBid(eq(AUCTION_ID), eq(BIDDER_ID), any(Limit.class)))
+				.thenReturn(Optional.of(latestBid));
+		when(bidRepository.findTopBid(eq(AUCTION_ID), any(Limit.class)))
+				.thenReturn(Optional.of(remainingTopBid));
+	}
+
+	@Test
+	void 입찰을_취소하면_커밋된_뒤에_Redis_현재가_캐시를_지운다() {
+		stubCancelableAuction();
+
+		// 실제 트랜잭션처럼 동기화를 켜서, afterCommit 콜백이 등록되는지 확인한다.
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			bidService.cancelBid(AUCTION_ID, BIDDER_ID);
+
+			// 아직 커밋 전이므로 캐시를 지우면 안 된다 (지우면 취소 전 가격으로 다시 채워질 수 있음)
+			verify(priceRedisService, never()).invalidateCurrentPrice(any());
+
+			// 커밋됐다고 가정하고 등록된 afterCommit 콜백을 실행한다.
+			TransactionSynchronizationManager.getSynchronizations()
+					.forEach(TransactionSynchronization::afterCommit);
+
+			verify(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+	}
+
+	@Test
+	void 트랜잭션_밖에서_취소하면_Redis_현재가_캐시를_바로_지운다() {
+		stubCancelableAuction();
+
+		bidService.cancelBid(AUCTION_ID, BIDDER_ID);
+
+		verify(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
+	}
+
+	@Test
+	void Redis_캐시_삭제가_실패해도_취소_결과는_그대로_돌려준다() {
+		stubCancelableAuction();
+		doThrow(new RuntimeException("Redis 연결 실패 시뮬레이션"))
+				.when(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
+
+		BidService.BidResult result = bidService.cancelBid(AUCTION_ID, BIDDER_ID);
+
+		assertThat(result.currentPrice()).isEqualTo(12_000L);
+	}
+
+	@Test
+	void 덮어써진_입찰이라_취소에_실패하면_Redis_현재가_캐시를_건드리지_않는다() {
+		Auction auction = auctionWithCurrentPrice(20_000L); // 다른 입찰이 이미 더 높은 가격으로 갱신한 상태
+		Bid latestBid = new Bid(AUCTION_ID, BIDDER_ID, 15_000L, LocalDateTime.now());
+
+		when(auctionRepository.findByIdForUpdate(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(bidRepository.findMyLatestBid(eq(AUCTION_ID), eq(BIDDER_ID), any(Limit.class)))
+				.thenReturn(Optional.of(latestBid));
+
+		assertThatThrownBy(() -> bidService.cancelBid(AUCTION_ID, BIDDER_ID))
+				.isInstanceOf(InvalidBidException.class);
+
+		verify(priceRedisService, never()).invalidateCurrentPrice(any());
 	}
 }

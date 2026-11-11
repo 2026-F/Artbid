@@ -14,6 +14,7 @@ import com.artbid.infra.realtime.AuctionSseRegistry;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.Limit;
@@ -27,6 +28,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class BidService {
@@ -62,6 +64,10 @@ public class BidService {
 				.map(Bid::getPrice)
 				.orElse(auction.getStartPrice());
 		auction.aftercancelPrice(revertedPrice);
+
+		// DB 현재가를 되돌렸으니 Redis 현재가 캐시도 맞춰야 한다. 안 그러면 Redis에는 취소된
+		// 입찰가가 그대로 남아서, DB 기준으로는 이기는 입찰이 Redis에서 "너무 낮다"며 거절된다.
+		invalidatePriceCacheAfterCommit(auctionId);
 
 		BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), false);
 		broadcastAfterCommit(auctionId, result); // 기존 화면 호환용 이름 없는 이벤트. 유지한다.
@@ -147,6 +153,8 @@ public class BidService {
 				priceRedisService.invalidateCurrentPrice(auctionId);
 			} catch (RuntimeException redisEx) {
 				// 보정 실패는 로그로만 남기고 원래 예외를 덮지 않는다.
+				log.warn("[입찰] auctionId={} DB 반영 실패 후 Redis 현재가 캐시 삭제도 실패: {}",
+						auctionId, redisEx.getMessage());
 			}
 			throw e;
 		}
@@ -174,6 +182,40 @@ public class BidService {
 	// now는 경매 행 락을 잡은 뒤의 시각이라 같은 경매 안에서는 커밋 순서와 같다(캐시의 오래된 변경 판별에 사용).
 	private void publishLiveChanged(Auction auction, LocalDateTime now, AuctionLiveReason reason, boolean extended) {
 		eventPublisher.publishEvent(new AuctionLiveChangedEvent(AuctionLiveState.changed(auction, now), reason, extended));
+	}
+
+	// Redis 현재가 캐시를 지운다. 다음 입찰이 캐시 미스로 DB에서 현재가를 다시 읽어 채운다.
+	//
+	// 왜 커밋 "뒤"에 지우나:
+	//   커밋 전에 지우면, 그 사이 들어온 입찰이 캐시 미스로 DB를 읽는데 아직 취소가 커밋되기 전이라
+	//   되돌리기 전 가격(취소된 입찰가)으로 캐시가 다시 채워질 수 있다.
+	// 왜 되돌린 가격으로 SET하지 않고 지우나:
+	//   커밋과 SET 사이에 더 높은 입찰이 Redis에서 이겼다면, SET이 그 가격을 낮은 값으로 덮어써 버린다.
+	//   지우기만 하면 다음 요청이 그 시점의 DB 값으로 채우므로 이런 역전이 없다.
+	// 롤백되면 DB 현재가도 그대로라 캐시를 지울 이유가 없으므로, afterCommit에서만 실행한다.
+	// 트랜잭션 밖에서 호출되면(단위 테스트 등) 바로 지운다.
+	private void invalidatePriceCacheAfterCommit(Long auctionId) {
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					invalidatePriceCacheQuietly(auctionId);
+				}
+			});
+		} else {
+			invalidatePriceCacheQuietly(auctionId);
+		}
+	}
+
+	// 취소는 이미 커밋됐으므로, Redis 장애로 캐시 삭제가 실패해도 예외를 밖으로 던지지 않는다.
+	// 대신 이 경우 Redis에 취소 전 가격이 남아 정상 입찰이 거절될 수 있으니 로그로 추적할 수 있게 남긴다.
+	private void invalidatePriceCacheQuietly(Long auctionId) {
+		try {
+			priceRedisService.invalidateCurrentPrice(auctionId);
+		} catch (RuntimeException e) {
+			log.warn("[입찰 취소] auctionId={} Redis 현재가 캐시 삭제 실패, 캐시에 취소 전 가격이 남았을 수 있음: {}",
+					auctionId, e.getMessage());
+		}
 	}
 
 	// 트랜잭션이 실제로 커밋된 뒤에만 구독자에게 알림 (롤백되면 알림도 안 나가야 하므로)
