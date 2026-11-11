@@ -112,10 +112,16 @@ public class BidService {
 
 		// expectedStatus는 "이 요청이 읽었던 시점의 상태"를 그대로 보존해둔 것 — 아래
 		// UPDATE가 그 사이 관리자가 상태를 바꿔놓은 경우를 잡아낼 수 있게 해준다.
-		// auction은 트랜잭션 밖에서 읽혀서 이미 detach된 상태라, applyBid는 메모리
-		// 계산만 하고 DB에는 아무 영향도 안 준다.
 		AuctionStatus expectedStatus = auction.getStatus();
-		boolean extended = auction.applyBid(price, now);
+
+		// applyBid로 엔티티를 바꾸기 전에 영속성 컨텍스트에서 떼어낸다.
+		// OSIV(spring.jpa.open-in-view)가 꺼져 있으면 auction은 이미 detach된 상태라 이 호출은 아무 일도 안 한다.
+		// 하지만 OSIV가 켜져 있으면 요청 전체가 영속성 컨텍스트 하나를 공유해서 auction이 아직 관리 대상이고,
+		// 그러면 아래 쓰기 트랜잭션이 커밋될 때 변경 감지(dirty checking)가 applyBid로 바뀐 값을
+		// 조건 없는 UPDATE로 그대로 써버린다. 그 순간 "더 낮은 가격이 늦게 와도 못 덮어쓴다"는
+		// 조건부 UPDATE의 보호가 무력해진다. 설정과 상관없이 안전하도록 명시적으로 떼어낸다.
+		entityManager.detach(auction);
+		boolean extended = auction.applyBid(price, now); // 이제 메모리에서만 계산된다. DB 반영은 아래 조건부 UPDATE로만
 
 		TransactionTemplate writeTransaction = new TransactionTemplate(transactionManager);
 		try {

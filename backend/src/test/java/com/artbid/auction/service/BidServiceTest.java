@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
@@ -36,6 +37,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -346,5 +348,24 @@ import static org.mockito.Mockito.lenient;
 				.isInstanceOf(InvalidBidException.class);
 
 		verify(priceRedisService, never()).invalidateCurrentPrice(any());
+	}
+
+	@Test
+	void 입찰을_DB에_반영하기_전에_경매_엔티티를_영속성_컨텍스트에서_떼어낸다() {
+		// OSIV가 켜져 있으면 조회한 auction이 계속 관리 대상이라, 떼어내지 않으면
+		// 커밋 때 변경 감지가 조건 없는 UPDATE를 날려 조건부 UPDATE의 보호를 무력화한다.
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
+				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
+		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
+				.thenReturn(1);
+
+		bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L);
+
+		// 떼어내기가 조건부 UPDATE보다 먼저 일어나야 한다
+		InOrder order = inOrder(entityManager, auctionRepository);
+		order.verify(entityManager).detach(auction);
+		order.verify(auctionRepository).updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any());
 	}
 }
