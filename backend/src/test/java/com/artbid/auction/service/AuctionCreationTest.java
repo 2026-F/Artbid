@@ -9,6 +9,7 @@ import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.common.exception.AuctionCreationConflictException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
@@ -32,7 +33,7 @@ class AuctionCreationTest {
 	void setUp() {
 		auctions = mock(AuctionRepository.class);
 		ArtworkRepository artworks = mock(ArtworkRepository.class);
-		service = new AuctionService(auctions, artworks);
+		service = new AuctionService(auctions, artworks, mock(ApplicationEventPublisher.class));
 		artwork = Artwork.builder().consignorId(1L).artistId(2L).title("무제")
 				.category(ArtworkCategory.PAINTING).startPrice(100_000L).build();
 		ReflectionTestUtils.setField(artwork, "id", 10L);
@@ -87,7 +88,7 @@ class AuctionCreationTest {
 	void 마감된_경매의_상태는_되돌릴_수_없다() {
 		Auction closed = mock(Auction.class);
 		when(closed.getStatus()).thenReturn(AuctionStatus.CLOSED);
-		when(auctions.findById(5L)).thenReturn(Optional.of(closed));
+		when(auctions.findByIdForUpdate(5L)).thenReturn(Optional.of(closed));
 
 		assertThatThrownBy(() -> service.updateStatus(5L, AuctionStatus.ONGOING))
 				.isInstanceOf(AuctionCreationConflictException.class);
