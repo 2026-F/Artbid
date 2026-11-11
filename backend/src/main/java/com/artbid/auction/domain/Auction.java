@@ -106,17 +106,24 @@ public class Auction {
 		return extended;
 	}
 
-	public void aftercancelPrice(Long price){
-		this.currentPrice = price;
-	}
-
-	private void validateBid(Long price, LocalDateTime now) {
+	// Redis로 가격 비교를 넘기기 전에 먼저 호출해서 "애초에 입찰 가능한 경매인지"부터 거른다.
+	// 이 체크를 가격 비교보다 뒤로 미루면, Redis는 가격만 보고 이겼다고 판정했는데 실제로는
+	// 마감됐거나 상태가 바뀐 경매였던 경우가 생기고, 그 어긋남은 아무도 되돌리지 않는다.
+	public void assertBiddable(LocalDateTime now) {
 		if (status != AuctionStatus.ONGOING && status != AuctionStatus.EXTENDED) {
 			throw new InvalidBidException("진행 중인 경매가 아닙니다. 현재 상태: " + status);
 		}
 		if (now.isAfter(this.auctionEndAt)) {
 			throw new InvalidBidException("이미 마감된 경매입니다.");
 		}
+	}
+
+	public void aftercancelPrice(Long price){
+		this.currentPrice = price;
+	}
+
+	private void validateBid(Long price, LocalDateTime now) {
+		assertBiddable(now);
 		long minValidPrice = this.currentPrice + this.minBidUnit;
 		if (price < minValidPrice) {
 			throw new InvalidBidException(

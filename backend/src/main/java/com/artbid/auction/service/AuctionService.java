@@ -3,8 +3,12 @@ package com.artbid.auction.service;
 import com.artbid.auction.domain.Auction;
 import com.artbid.auction.domain.AuctionStatus;
 import com.artbid.auction.dto.AuctionDetailResponse;
+import com.artbid.auction.live.AuctionLiveChangedEvent;
+import com.artbid.auction.live.AuctionLiveReason;
+import com.artbid.auction.live.AuctionLiveState;
 import com.artbid.auction.repository.AuctionRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.artbid.artwork.repository.ArtworkRepository;
@@ -21,6 +25,7 @@ public class AuctionService {
 
 	private final AuctionRepository auctionRepository;
 	private final ArtworkRepository artworkRepository;
+	private final ApplicationEventPublisher eventPublisher;
 
 	public Auction getAuction(Long id) {
 		return auctionRepository.findById(id)
@@ -78,11 +83,16 @@ public class AuctionService {
 	// 새 상태가 ONGOING이면, 연결된 작품도 "경매 중"으로 같이 맞춰준다.
 	@Transactional
 	public void updateStatus(Long auctionId, AuctionStatus status) {
-		Auction auction = auctionRepository.findById(auctionId)
+		Auction auction = auctionRepository.findByIdForUpdate(auctionId)
 				.orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + auctionId));
 
+		if (status == AuctionStatus.CLOSED) {
+			throw new AuctionCreationConflictException("경매는 마감 시각 이후 자동으로 마감됩니다.");
+		}
+
 		// 마감된 경매를 되살리면 마감 시각이 지나 있어 곧바로 다시 마감되고 정산이 또 생긴다. 재오픈은 새 경매로 한다.
-		if (auction.getStatus() == AuctionStatus.CLOSED && status != AuctionStatus.CLOSED) {
+		AuctionStatus previousStatus = auction.getStatus();
+		if (previousStatus == AuctionStatus.CLOSED) {
 			throw new AuctionCreationConflictException("마감된 경매는 상태를 바꿀 수 없습니다. 다시 열기를 사용해주세요.");
 		}
 
@@ -90,6 +100,11 @@ public class AuctionService {
 
 		if (status == AuctionStatus.ONGOING) {
 			artworkRepository.findById(auction.getArtworkId()).ifPresent(Artwork::markInAuction);
+		}
+
+		if (previousStatus != status) {
+			eventPublisher.publishEvent(new AuctionLiveChangedEvent(
+					AuctionLiveState.changed(auction, LocalDateTime.now()), AuctionLiveReason.SNAPSHOT, false));
 		}
 	}
 
