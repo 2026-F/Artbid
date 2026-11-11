@@ -52,6 +52,8 @@ import static org.mockito.Mockito.lenient;
 	private EntityManager entityManager;
 	@Mock
 	private ApplicationEventPublisher eventPublisher;
+	@Mock
+	private AuctionPriceRedisService priceRedisService;
 
 	private BidService bidService;
 
@@ -60,7 +62,7 @@ import static org.mockito.Mockito.lenient;
 
 	@BeforeEach
 	void setUp() {
-		bidService = new BidService(auctionRepository, bidRepository, sseRegistry, eventPublisher);
+		bidService = new BidService(auctionRepository, bidRepository, sseRegistry, eventPublisher, priceRedisService);
 		ReflectionTestUtils.setField(bidService, "entityManager", entityManager);
 
 		// lockAuctionOrThrow()가 cancelBid/submitBid 진입 시 항상 먼저 실행하는
@@ -182,7 +184,11 @@ import static org.mockito.Mockito.lenient;
 	@Test
 	void 입찰하면_실시간_상태_변경_이벤트를_발행한다() {
 		Auction auction = auctionWithCurrentPrice(15_000L);
-		when(auctionRepository.findByIdForUpdate(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
+				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
+		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any()))
+				.thenReturn(1);
 
 		bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L);
 
@@ -199,7 +205,9 @@ import static org.mockito.Mockito.lenient;
 	@Test
 	void 입찰_검증에_실패하면_이벤트를_발행하지_않는다() {
 		Auction auction = auctionWithCurrentPrice(15_000L);
-		when(auctionRepository.findByIdForUpdate(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 15_500L, auction.getMinBidUnit()))
+				.thenReturn(AuctionPriceRedisService.UpdateResult.REJECTED);
 
 		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 15_500L)) // 최소 단위 미달
 				.isInstanceOf(InvalidBidException.class);
