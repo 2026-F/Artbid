@@ -48,12 +48,13 @@ public class AuctionPriceRedisService {
     }
 
     /**
-     * DB 반영이 끝내 실패했을 때, Redis를 DB의 실제 현재가로 강제로 되돌린다 (보정용).
-     * primeCurrentPrice와 달리 무조건 덮어쓴다 — 실패했을 때만 호출되므로 정상 흐름에는
-     * 비용이 붙지 않는다.
+     * DB 반영이 실패했을 때 Redis 캐시를 아예 비운다 (보정용). DB를 다시 읽어서 되돌리려
+     * 하면, 하필 DB 에러로 실패한 그 트랜잭션은 이미 aborted 상태라 그 안에서의 재조회도
+     * 같이 실패해 원래 예외를 가릴 수 있다. 그래서 그냥 비워두면, 다음 요청이 자연스럽게
+     * CACHE_MISS로 떨어지면서 완전히 새로운(깨끗한) 트랜잭션에서 DB 값으로 다시 채워진다.
      */
-    public void forceSetCurrentPrice(Long auctionId, Long currentPriceFromDb) {
-        redisTemplate.opsForValue().set(currentPriceKey(auctionId), String.valueOf(currentPriceFromDb));
+    public void invalidateCurrentPrice(Long auctionId) {
+        redisTemplate.delete(currentPriceKey(auctionId));
     }
 
     private String currentPriceKey(Long auctionId) {

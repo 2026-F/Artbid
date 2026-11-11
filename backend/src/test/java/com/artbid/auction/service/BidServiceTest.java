@@ -215,6 +215,46 @@ import static org.mockito.Mockito.lenient;
 	}
 
 	@Test
+	void Redis에서는_이겼지만_그사이_경매상태가_바뀌면_DB반영이_0건으로_실패한다() {
+		// 관리자가 findByIdForUpdate로 락 잡고 상태를 바꾸는 바로 그 틈에 입찰이 들어온
+		// 상황을 흉내낸다: Redis 가격 판정은 통과하지만, updateIfHigherPrice의
+		// status = :expectedStatus 조건에 걸려 0건을 돌려준다.
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
+				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
+		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
+				.thenReturn(0);
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(BidTemporarilyUnavailableException.class);
+
+		// 이 경우는 Redis 값이 여전히 맞으므로 되돌리는 보정(invalidate)을 호출하지 않아야 한다.
+		verify(priceRedisService, never()).invalidateCurrentPrice(any());
+		verify(eventPublisher, never()).publishEvent(any(Object.class));
+	}
+
+	@Test
+	void Redis성공후_DB반영중_예외가나면_Redis캐시를_무효화하고_원래예외를_그대로던진다() {
+		// updateIfHigherPrice 자체가 (제약 위반 등으로) 예외를 던지는 경우를 흉내낸다.
+		// 이때는 Redis만 "이겼다"고 알고 있고 DB엔 반영이 안 됐을 수 있으므로,
+		// 같은 트랜잭션을 다시 읽지 않고 Redis 캐시를 비워서 다음 요청이 DB로 재동기화하게 한다.
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
+				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
+		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
+				.thenThrow(new RuntimeException("DB 에러 시뮬레이션"));
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(RuntimeException.class)
+				.hasMessage("DB 에러 시뮬레이션"); // 원래 예외가 가려지지 않고 그대로 전파돼야 한다
+
+		verify(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
+		verify(eventPublisher, never()).publishEvent(any(Object.class));
+	}
+
+	@Test
 	void 입찰을_취소하면_되돌린_현재가로_이벤트를_발행한다() {
 		Auction auction = auctionWithCurrentPrice(15_000L);
 		Bid latestBid = new Bid(AUCTION_ID, BIDDER_ID, 15_000L, LocalDateTime.now());

@@ -127,10 +127,16 @@ public class BidService {
 			throw e; // 위 설명대로 Redis는 이미 맞는 상태라 보정 불필요
 		} catch (RuntimeException e) {
 			// 예상 못한 실패(DB 에러 등) — Redis만 "이겼다"고 알고 있고 DB엔 반영 안 된 상태로
-			// 남을 수 있으니, DB의 실제 현재가로 Redis를 강제로 되돌려 다시 맞춘다. 이 보정은
-			// 실패했을 때만 실행되므로 정상 흐름에는 비용이 붙지 않는다.
-			auctionRepository.findById(auctionId)
-					.ifPresent(a -> priceRedisService.forceSetCurrentPrice(auctionId, a.getCurrentPrice()));
+			// 남을 수 있다. 이 트랜잭션은 이미 실패한(Postgres 기준 aborted) 상태일 수 있어서,
+			// 같은 트랜잭션 안에서 DB를 다시 읽어 되돌리려 하면 그 조회마저 실패해 원래 예외를
+			// 가려버릴 수 있다. 그래서 DB를 다시 읽지 않고 Redis 캐시를 비운다 — 다음 요청이
+			// CACHE_MISS로 떨어지면서 새 트랜잭션에서 DB 값으로 다시 채워진다. 이 보정 자체가
+			// 실패해도 원래 예외는 그대로 전파되게 따로 감싼다.
+			try {
+				priceRedisService.invalidateCurrentPrice(auctionId);
+			} catch (RuntimeException redisEx) {
+				// 보정 실패는 로그로만 남기고 원래 예외를 덮지 않는다.
+			}
 			throw e;
 		}
 	}
