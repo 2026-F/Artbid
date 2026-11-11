@@ -120,6 +120,11 @@ services:
       # Postgres max_connections=100이라 이 정도는 여유 있음. 값은 docker-compose.yml만
       # 고쳐서 바로 테스트 가능 (이미지 재빌드 불필요 — git pull + up -d --force-recreate면 적용됨).
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 30
+      # application.yml 기본값이 show-sql: true라서 배포 서버에서도 모든 SQL이 콘솔에 찍히고 있었음.
+      # 콘솔 출력(System.out)은 동기화돼 있어서 스레드끼리 줄을 서고, Hibernate는 커넥션을 쥔 채로
+      # SQL을 찍기 때문에 커넥션 사용 시간과 CPU를 직접 늘린다(부하테스트에서 평균 19ms 확인).
+      # 로컬 bootRun에는 영향 없도록 컨테이너 환경변수로만 끈다.
+      SPRING_JPA_SHOW_SQL: "false"
 
 
 volumes:
