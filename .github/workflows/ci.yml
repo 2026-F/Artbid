@@ -18,6 +18,9 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    # 테스트가 멈추면 GitHub 기본값(6시간)까지 기다리며 Actions 사용 시간을 계속 쓴다.
+    # 평소 빌드+테스트는 2분 안팎이라, 15분이 넘으면 뭔가 멈춘 것으로 보고 실패시킨다.
+    timeout-minutes: 15
     # 테스트 코드가 실제 PostgreSQL·Redis에 연결해서 도는 경우를 대비해
     # GitHub Actions 러너 안에 임시 컨테이너로 띄워줌 (우리 docker-compose랑 같은 이미지)
     services:
