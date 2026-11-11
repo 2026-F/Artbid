@@ -47,6 +47,15 @@ public class AuctionPriceRedisService {
         redisTemplate.opsForValue().setIfAbsent(currentPriceKey(auctionId), String.valueOf(currentPriceFromDb));
     }
 
+    /**
+     * DB 반영이 끝내 실패했을 때, Redis를 DB의 실제 현재가로 강제로 되돌린다 (보정용).
+     * primeCurrentPrice와 달리 무조건 덮어쓴다 — 실패했을 때만 호출되므로 정상 흐름에는
+     * 비용이 붙지 않는다.
+     */
+    public void forceSetCurrentPrice(Long auctionId, Long currentPriceFromDb) {
+        redisTemplate.opsForValue().set(currentPriceKey(auctionId), String.valueOf(currentPriceFromDb));
+    }
+
     private String currentPriceKey(Long auctionId) {
         return "auction:" + auctionId + ":current_price";
     }
