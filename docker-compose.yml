@@ -103,6 +103,7 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # cAdvisor가 컨테이너 이름(name 라벨)을 읽으려면 Docker 소켓 접근이 필요함
 
   backend:
     image: ghcr.io/2026-f/artbid-backend:latest
