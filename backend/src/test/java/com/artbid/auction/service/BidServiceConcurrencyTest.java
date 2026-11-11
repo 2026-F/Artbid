@@ -108,25 +108,31 @@ class BidServiceConcurrencyTest {
         CountDownLatch lockAcquired = new CountDownLatch(1);
         CountDownLatch releaseLock = new CountDownLatch(1);
 
-        // 스레드 A: 락을 잡고 5초간 안 놓음 (타임아웃 3초보다 길게)
+        // 스레드 A: 경매 행에 락을 잡고, 테스트가 놓으라고 할 때까지 들고 있음 (입찰 쪽 타임아웃 3초보다 길게)
+        // 테스트가 어떤 이유로든 신호를 못 주더라도 10초 뒤엔 스스로 놓는다 — 예전에는 여기에 제한이 없어서
+        // 입찰이 락을 무한정 기다리면 A와 테스트가 서로를 기다리며 CI가 몇 시간씩 멈췄다.
         Thread holder = new Thread(() -> transactionTemplate.execute(status -> {
             auctionRepository.findByIdForUpdate(auctionId);
             lockAcquired.countDown();
             try {
-                releaseLock.await();
+                releaseLock.await(10, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
             return null;
         }));
+        holder.setDaemon(true); // 혹시 남아 있어도 테스트 JVM 종료를 막지 않게
         holder.start();
-        lockAcquired.await(); // A가 락을 확실히 잡을 때까지 대기
+        assertThat(lockAcquired.await(5, TimeUnit.SECONDS)).as("스레드 A가 락을 잡았는지").isTrue();
 
-        // 스레드 B: A가 락을 들고 있는 동안 입찰 시도 -> 3초 안에 못 받고 예외
-        assertThatThrownBy(() -> bidService.submitBid(auctionId, 999L, 20_000L))
-                .isInstanceOf(BidTemporarilyUnavailableException.class);
-
-        releaseLock.countDown();
-        holder.join();
+        try {
+            // A가 락을 들고 있는 동안 입찰 시도 -> 조건부 UPDATE가 3초 안에 락을 못 받고 503 예외
+            assertThatThrownBy(() -> bidService.submitBid(auctionId, 999L, 20_000L))
+                    .isInstanceOf(BidTemporarilyUnavailableException.class);
+        } finally {
+            // 검증이 실패해도 반드시 락을 놓게 한다
+            releaseLock.countDown();
+            holder.join(10_000);
+        }
     }
 }
