@@ -22,6 +22,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.Limit;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -54,6 +55,8 @@ import static org.mockito.Mockito.lenient;
 	private ApplicationEventPublisher eventPublisher;
 	@Mock
 	private AuctionPriceRedisService priceRedisService;
+	@Mock
+	private PlatformTransactionManager transactionManager;
 
 	private BidService bidService;
 
@@ -62,7 +65,7 @@ import static org.mockito.Mockito.lenient;
 
 	@BeforeEach
 	void setUp() {
-		bidService = new BidService(auctionRepository, bidRepository, sseRegistry, eventPublisher, priceRedisService);
+		bidService = new BidService(auctionRepository, bidRepository, sseRegistry, eventPublisher, priceRedisService, transactionManager);
 		ReflectionTestUtils.setField(bidService, "entityManager", entityManager);
 
 		// lockAuctionOrThrow()가 cancelBid/submitBid 진입 시 항상 먼저 실행하는
