@@ -18,9 +18,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -37,6 +39,7 @@ public class BidService {
 	private final AuctionSseRegistry sseRegistry;
 	private final ApplicationEventPublisher eventPublisher;
 	private final AuctionPriceRedisService priceRedisService;
+	private final PlatformTransactionManager transactionManager;
 
 	//입찰 취소
 	@Transactional
@@ -66,7 +69,14 @@ public class BidService {
 		return result;
 	}
 
-	@Transactional
+	// 이 메서드 전체를 @Transactional로 감싸지 않는다. 그렇게 하면 findById가 커넥션을
+	// 받아오자마자, 뒤이어 나오는 Redis 네트워크 호출이 끝날 때까지 그 커넥션을 계속 쥐고
+	// 있게 된다. Redis는 싱글 스레드라 경합이 심해지면 그 호출 자체가 오래 걸릴 수 있는데,
+	// 그동안 DB 커넥션을 아무 일도 안 하면서 쥐고만 있으면 "커넥션 풀 고갈"이라는 원래
+	// 문제가 (무엇을 기다리는지만 바뀐 채) 그대로 재현된다. 그래서 DB 조회는 트랜잭션
+	// 밖에서 하고(JPA가 그 호출 하나만을 위한 아주 짧은 트랜잭션을 열었다 바로 커넥션을
+	// 반납해준다), 실제 DB 쓰기만 아래 TransactionTemplate으로 필요한 순간에만 짧게
+	// 트랜잭션을 연다.
 	public BidResult submitBid(Long auctionId, Long bidderId, Long price) {
 		// 더 이상 findByIdForUpdate(락 거는 조회)가 아니라 그냥 findById다.
 		// "누가 이겼는지" 판정은 이제 아래 Redis 호출이 담당한다.
@@ -94,34 +104,35 @@ public class BidService {
 							+ (auction.getCurrentPrice() + auction.getMinBidUnit()) + "원 이상 입력하세요.");
 		}
 
+		// expectedStatus는 "이 요청이 읽었던 시점의 상태"를 그대로 보존해둔 것 — 아래
+		// UPDATE가 그 사이 관리자가 상태를 바꿔놓은 경우를 잡아낼 수 있게 해준다.
+		// auction은 트랜잭션 밖에서 읽혀서 이미 detach된 상태라, applyBid는 메모리
+		// 계산만 하고 DB에는 아무 영향도 안 준다.
+		AuctionStatus expectedStatus = auction.getStatus();
+		boolean extended = auction.applyBid(price, now);
+
+		TransactionTemplate writeTransaction = new TransactionTemplate(transactionManager);
 		try {
-			// Hibernate가 이 엔티티를 트랜잭션 끝에서 자동으로(dirty checking) 다시 써버리면
-			// 아래 조건부 UPDATE로 거는 보호가 무의미해진다. 그래서 영속성 컨텍스트에서
-			// 떼어낸 뒤, 그 복사본 위에서만 계산하고 실제 DB 반영은 조건부 UPDATE 하나로만 한다.
-			// expectedStatus는 "이 요청이 읽었던 시점의 상태"를 그대로 보존해둔 것 — 아래
-			// UPDATE가 그 사이 관리자가 상태를 바꿔놓은 경우를 잡아낼 수 있게 해준다.
-			AuctionStatus expectedStatus = auction.getStatus();
-			entityManager.detach(auction);
-			boolean extended = auction.applyBid(price, now); // 메모리 상에서만 검증 + 계산
+			return writeTransaction.execute(status -> {
+				int updatedRows = auctionRepository.updateIfHigherPrice(
+						auctionId, auction.getCurrentPrice(), auction.getAuctionEndAt(), auction.getStatus(), expectedStatus);
 
-			int updatedRows = auctionRepository.updateIfHigherPrice(
-					auctionId, auction.getCurrentPrice(), auction.getAuctionEndAt(), auction.getStatus(), expectedStatus);
+				if (updatedRows == 0) {
+					// Redis에서는 이겼지만, DB에 반영하는 그 짧은 틈에 다른 요청이 먼저
+					// (같거나 더 높은 가격으로) 반영했거나, 관리자가 경매 상태를 바꿔놓은 경우다.
+					// 두 경우 다 Redis 값을 되돌릴 필요는 없다 — 전자는 더 높은 가격이 이미
+					// Redis를 거쳐왔으니 여전히 맞고, 후자는 가격 자체는 안 바뀌었으니 역시 맞다.
+					// 이 요청만 실패 처리하면 된다.
+					throw new BidTemporarilyUnavailableException();
+				}
 
-			if (updatedRows == 0) {
-				// Redis에서는 이겼지만, DB에 반영하는 그 짧은 틈에 다른 요청이 먼저
-				// (같거나 더 높은 가격으로) 반영했거나, 관리자가 경매 상태를 바꿔놓은 경우다.
-				// 두 경우 다 Redis 값을 되돌릴 필요는 없다 — 전자는 더 높은 가격이 이미
-				// Redis를 거쳐왔으니 여전히 맞고, 후자는 가격 자체는 안 바뀌었으니 역시 맞다.
-				// 이 요청만 실패 처리하면 된다.
-				throw new BidTemporarilyUnavailableException();
-			}
+				bidRepository.save(new Bid(auctionId, bidderId, price, now));
 
-			bidRepository.save(new Bid(auctionId, bidderId, price, now));
-
-			BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), extended);
-			broadcastAfterCommit(auctionId, result);
-			publishLiveChanged(auction, now, AuctionLiveReason.BID, extended);
-			return result;
+				BidResult result = new BidResult(auction.getCurrentPrice(), auction.getAuctionEndAt(), extended);
+				broadcastAfterCommit(auctionId, result);
+				publishLiveChanged(auction, now, AuctionLiveReason.BID, extended);
+				return result;
+			});
 
 		} catch (BidTemporarilyUnavailableException e) {
 			throw e; // 위 설명대로 Redis는 이미 맞는 상태라 보정 불필요
