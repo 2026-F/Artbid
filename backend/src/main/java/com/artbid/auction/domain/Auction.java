@@ -18,8 +18,9 @@ import java.time.LocalDateTime;
 public class Auction {
 
 	// 마감 30초 이내 입찰이면 마감을 30초 연장한다 (안티 스나이핑)
-	private static final long ADD_WINDOW_SECONDS = 30;
-	private static final long ADD_EXTEND_SECONDS = 30;
+	// 실제 입찰 판정은 Redis Lua(scripts/bid.lua)가 같은 규칙으로 한다. 이 값을 인자로 넘기므로 여기만 바꾸면 된다.
+	public static final long ADD_WINDOW_SECONDS = 30;
+	public static final long ADD_EXTEND_SECONDS = 30;
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -91,6 +92,8 @@ public class Auction {
 		return now.isBefore(previewStart) ? AuctionStatus.SCHEDULED : AuctionStatus.PREVIEW;
 	}
 
+	// 입찰 판정 규칙의 기준 구현. 운영 입찰 경로는 같은 규칙을 Redis Lua(scripts/bid.lua)로 처리하고,
+	// 규칙을 바꿀 때는 두 곳을 같이 바꿔야 한다 (AuctionPriceRedisServiceTest가 Lua 쪽 규칙을 검증).
 	public boolean applyBid(Long price, LocalDateTime now) {
 		validateBid(price, now);
 

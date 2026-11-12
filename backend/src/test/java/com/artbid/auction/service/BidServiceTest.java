@@ -41,6 +41,8 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import static org.mockito.Mockito.lenient;
@@ -190,79 +192,6 @@ import static org.mockito.Mockito.lenient;
 	}
 
 	@Test
-	void 입찰하면_실시간_상태_변경_이벤트를_발행한다() {
-		Auction auction = auctionWithCurrentPrice(15_000L);
-		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
-		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
-				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
-		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
-				.thenReturn(1);
-
-		bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L);
-
-		ArgumentCaptor<AuctionLiveChangedEvent> captor = ArgumentCaptor.forClass(AuctionLiveChangedEvent.class);
-		verify(eventPublisher).publishEvent(captor.capture());
-		AuctionLiveChangedEvent event = captor.getValue();
-		assertThat(event.reason()).isEqualTo(AuctionLiveReason.BID);
-		assertThat(event.state().auctionId()).isEqualTo(AUCTION_ID);
-		assertThat(event.state().currentPrice()).isEqualTo(16_000L);
-		assertThat(event.state().version()).isPositive();
-		assertThat(event.extended()).isFalse();
-	}
-
-	@Test
-	void 입찰_검증에_실패하면_이벤트를_발행하지_않는다() {
-		Auction auction = auctionWithCurrentPrice(15_000L);
-		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
-		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 15_500L, auction.getMinBidUnit()))
-				.thenReturn(AuctionPriceRedisService.UpdateResult.REJECTED);
-
-		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 15_500L)) // 최소 단위 미달
-				.isInstanceOf(InvalidBidException.class);
-		verify(eventPublisher, never()).publishEvent(any(Object.class));
-	}
-
-	@Test
-	void Redis에서는_이겼지만_그사이_경매상태가_바뀌면_DB반영이_0건으로_실패한다() {
-		// 관리자가 findByIdForUpdate로 락 잡고 상태를 바꾸는 바로 그 틈에 입찰이 들어온
-		// 상황을 흉내낸다: Redis 가격 판정은 통과하지만, updateIfHigherPrice의
-		// status = :expectedStatus 조건에 걸려 0건을 돌려준다.
-		Auction auction = auctionWithCurrentPrice(15_000L);
-		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
-		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
-				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
-		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
-				.thenReturn(0);
-
-		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
-				.isInstanceOf(BidTemporarilyUnavailableException.class);
-
-		// 이 경우는 Redis 값이 여전히 맞으므로 되돌리는 보정(invalidate)을 호출하지 않아야 한다.
-		verify(priceRedisService, never()).invalidateCurrentPrice(any());
-		verify(eventPublisher, never()).publishEvent(any(Object.class));
-	}
-
-	@Test
-	void Redis성공후_DB반영중_예외가나면_Redis캐시를_무효화하고_원래예외를_그대로던진다() {
-		// updateIfHigherPrice 자체가 (제약 위반 등으로) 예외를 던지는 경우를 흉내낸다.
-		// 이때는 Redis만 "이겼다"고 알고 있고 DB엔 반영이 안 됐을 수 있으므로,
-		// 같은 트랜잭션을 다시 읽지 않고 Redis 캐시를 비워서 다음 요청이 DB로 재동기화하게 한다.
-		Auction auction = auctionWithCurrentPrice(15_000L);
-		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
-		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
-				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
-		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
-				.thenThrow(new RuntimeException("DB 에러 시뮬레이션"));
-
-		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
-				.isInstanceOf(RuntimeException.class)
-				.hasMessage("DB 에러 시뮬레이션"); // 원래 예외가 가려지지 않고 그대로 전파돼야 한다
-
-		verify(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
-		verify(eventPublisher, never()).publishEvent(any(Object.class));
-	}
-
-	@Test
 	void 입찰을_취소하면_되돌린_현재가로_이벤트를_발행한다() {
 		Auction auction = auctionWithCurrentPrice(15_000L);
 		Bid latestBid = new Bid(AUCTION_ID, BIDDER_ID, 15_000L, LocalDateTime.now());
@@ -303,13 +232,13 @@ import static org.mockito.Mockito.lenient;
 			bidService.cancelBid(AUCTION_ID, BIDDER_ID);
 
 			// 아직 커밋 전이므로 캐시를 지우면 안 된다 (지우면 취소 전 가격으로 다시 채워질 수 있음)
-			verify(priceRedisService, never()).invalidateCurrentPrice(any());
+			verify(priceRedisService, never()).invalidate(any());
 
 			// 커밋됐다고 가정하고 등록된 afterCommit 콜백을 실행한다.
 			TransactionSynchronizationManager.getSynchronizations()
 					.forEach(TransactionSynchronization::afterCommit);
 
-			verify(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
+			verify(priceRedisService).invalidate(AUCTION_ID);
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
@@ -321,14 +250,14 @@ import static org.mockito.Mockito.lenient;
 
 		bidService.cancelBid(AUCTION_ID, BIDDER_ID);
 
-		verify(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
+		verify(priceRedisService).invalidate(AUCTION_ID);
 	}
 
 	@Test
 	void Redis_캐시_삭제가_실패해도_취소_결과는_그대로_돌려준다() {
 		stubCancelableAuction();
 		doThrow(new RuntimeException("Redis 연결 실패 시뮬레이션"))
-				.when(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
+				.when(priceRedisService).invalidate(AUCTION_ID);
 
 		BidService.BidResult result = bidService.cancelBid(AUCTION_ID, BIDDER_ID);
 
@@ -347,36 +276,210 @@ import static org.mockito.Mockito.lenient;
 		assertThatThrownBy(() -> bidService.cancelBid(AUCTION_ID, BIDDER_ID))
 				.isInstanceOf(InvalidBidException.class);
 
-		verify(priceRedisService, never()).invalidateCurrentPrice(any());
+		verify(priceRedisService, never()).invalidate(any());
+	}
+
+	// ---------------------------------------------------------------------
+	// submitBid: 판정은 Redis(AuctionPriceRedisService.tryBid)가, DB는 이긴 입찰만
+	// ---------------------------------------------------------------------
+
+	private static final LocalDateTime END_AT = LocalDateTime.now().plusMinutes(10).withNano(0);
+
+	// Redis 판정 결과를 만든다. 최소 단위는 1,000원으로 고정.
+	private AuctionPriceRedisService.BidDecision decision(
+			AuctionPriceRedisService.Outcome outcome, long currentPrice, AuctionStatus status,
+			LocalDateTime endAt, boolean extended) {
+		return new AuctionPriceRedisService.BidDecision(outcome, currentPrice, 1_000L, status, endAt, extended);
+	}
+
+	private AuctionPriceRedisService.BidDecision win(long newPrice) {
+		return decision(AuctionPriceRedisService.Outcome.WIN, newPrice, AuctionStatus.ONGOING, END_AT, false);
+	}
+
+	private void stubRedis(Long price, AuctionPriceRedisService.BidDecision... results) {
+		AuctionPriceRedisService.BidDecision first = results[0];
+		AuctionPriceRedisService.BidDecision[] rest = java.util.Arrays.copyOfRange(results, 1, results.length);
+		when(priceRedisService.tryBid(eq(AUCTION_ID), eq(price), any(LocalDateTime.class))).thenReturn(first, rest);
 	}
 
 	@Test
-	void 입찰을_DB에_반영하기_전에_경매_엔티티를_영속성_컨텍스트에서_떼어낸다() {
-		// OSIV가 켜져 있으면 조회한 auction이 계속 관리 대상이라, 떼어내지 않으면
-		// 커밋 때 변경 감지가 조건 없는 UPDATE를 날려 조건부 UPDATE의 보호를 무력화한다.
-		Auction auction = auctionWithCurrentPrice(15_000L);
-		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
-		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
-				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
-		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
+	void 이긴_입찰은_DB를_읽지_않고_조건부_UPDATE와_INSERT만_하고_이벤트를_발행한다() {
+		stubRedis(16_000L, win(16_000L));
+		when(auctionRepository.updateIfHigherPrice(AUCTION_ID, 16_000L, END_AT, AuctionStatus.ONGOING))
 				.thenReturn(1);
 
-		bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L);
+		BidService.BidResult result = bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L);
 
-		// 떼어내기가 조건부 UPDATE보다 먼저 일어나야 한다
-		InOrder order = inOrder(entityManager, auctionRepository);
-		order.verify(entityManager).detach(auction);
-		order.verify(auctionRepository).updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any());
+		assertThat(result.currentPrice()).isEqualTo(16_000L);
+		assertThat(result.auctionEndAt()).isEqualTo(END_AT);
+		assertThat(result.extended()).isFalse();
+
+		// 캐시가 있으면 경매 조회(findById)는 한 번도 하지 않는다
+		verify(auctionRepository, never()).findById(any());
+		verify(priceRedisService, never()).prime(any());
+
+		ArgumentCaptor<Bid> savedBid = ArgumentCaptor.forClass(Bid.class);
+		verify(bidRepository).save(savedBid.capture());
+		assertThat(savedBid.getValue().getPrice()).isEqualTo(16_000L);
+		assertThat(savedBid.getValue().getBidderId()).isEqualTo(BIDDER_ID);
+
+		ArgumentCaptor<AuctionLiveChangedEvent> captor = ArgumentCaptor.forClass(AuctionLiveChangedEvent.class);
+		verify(eventPublisher).publishEvent(captor.capture());
+		AuctionLiveChangedEvent event = captor.getValue();
+		assertThat(event.reason()).isEqualTo(AuctionLiveReason.BID);
+		assertThat(event.state().auctionId()).isEqualTo(AUCTION_ID);
+		assertThat(event.state().currentPrice()).isEqualTo(16_000L);
+		assertThat(event.state().minBidUnit()).isEqualTo(1_000L);
+		assertThat(event.state().auctionEndAt()).isEqualTo(END_AT);
+		assertThat(event.state().status()).isEqualTo(AuctionStatus.ONGOING);
+		assertThat(event.state().version()).isPositive();
+		assertThat(event.extended()).isFalse();
+	}
+
+	@Test
+	void 마감_직전_입찰로_연장되면_Redis가_계산한_마감과_EXTENDED를_그대로_DB에_반영한다() {
+		LocalDateTime extendedEnd = END_AT.plusSeconds(30);
+		stubRedis(16_000L, decision(AuctionPriceRedisService.Outcome.WIN, 16_000L, AuctionStatus.EXTENDED, extendedEnd, true));
+		when(auctionRepository.updateIfHigherPrice(AUCTION_ID, 16_000L, extendedEnd, AuctionStatus.EXTENDED))
+				.thenReturn(1);
+
+		BidService.BidResult result = bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L);
+
+		assertThat(result.extended()).isTrue();
+		assertThat(result.auctionEndAt()).isEqualTo(extendedEnd);
+
+		ArgumentCaptor<AuctionLiveChangedEvent> captor = ArgumentCaptor.forClass(AuctionLiveChangedEvent.class);
+		verify(eventPublisher).publishEvent(captor.capture());
+		assertThat(captor.getValue().extended()).isTrue();
+		assertThat(captor.getValue().state().status()).isEqualTo(AuctionStatus.EXTENDED);
+	}
+
+	@Test
+	void 가격이_낮은_입찰은_DB를_전혀_거치지_않고_거절된다() {
+		stubRedis(15_500L, decision(AuctionPriceRedisService.Outcome.TOO_LOW, 15_000L, AuctionStatus.ONGOING, END_AT, false));
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 15_500L))
+				.isInstanceOf(InvalidBidException.class)
+				.hasMessage("입찰가가 너무 낮습니다. 현재가 15000원, 최소 16000원 이상 입력하세요.");
+
+		// 핵심: 지는 입찰은 경매 조회도, 트랜잭션도, 이벤트도 없다 -> DB 커넥션을 빌리지 않는다
+		verifyNoInteractions(auctionRepository, bidRepository, transactionManager, eventPublisher, sseRegistry);
+	}
+
+	@Test
+	void 진행_중이_아닌_경매의_입찰은_DB를_거치지_않고_거절된다() {
+		stubRedis(16_000L, decision(AuctionPriceRedisService.Outcome.NOT_BIDDABLE, 15_000L, AuctionStatus.CLOSED, END_AT, false));
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(InvalidBidException.class)
+				.hasMessage("진행 중인 경매가 아닙니다. 현재 상태: CLOSED");
+
+		verifyNoInteractions(auctionRepository, bidRepository, transactionManager, eventPublisher, sseRegistry);
+	}
+
+	@Test
+	void 마감_시각이_지난_경매의_입찰은_DB를_거치지_않고_거절된다() {
+		stubRedis(16_000L, decision(AuctionPriceRedisService.Outcome.ENDED, 15_000L, AuctionStatus.ONGOING, END_AT, false));
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(InvalidBidException.class)
+				.hasMessage("이미 마감된 경매입니다.");
+
+		verifyNoInteractions(auctionRepository, bidRepository, transactionManager, eventPublisher, sseRegistry);
+	}
+
+	@Test
+	void 캐시가_비어있으면_DB에서_한번_읽어_채운_뒤_다시_판정한다() {
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		stubRedis(16_000L, AuctionPriceRedisService.BidDecision.cacheMiss(), win(16_000L));
+		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
+		when(auctionRepository.updateIfHigherPrice(AUCTION_ID, 16_000L, END_AT, AuctionStatus.ONGOING))
+				.thenReturn(1);
+
+		BidService.BidResult result = bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L);
+
+		assertThat(result.currentPrice()).isEqualTo(16_000L);
+		// 읽기 -> 채우기 -> 다시 판정 순서
+		InOrder order = inOrder(auctionRepository, priceRedisService);
+		order.verify(priceRedisService).tryBid(eq(AUCTION_ID), eq(16_000L), any(LocalDateTime.class));
+		order.verify(auctionRepository).findById(AUCTION_ID);
+		order.verify(priceRedisService).prime(auction);
+		order.verify(priceRedisService).tryBid(eq(AUCTION_ID), eq(16_000L), any(LocalDateTime.class));
+		verify(auctionRepository, times(1)).findById(AUCTION_ID);
+	}
+
+	@Test
+	void 캐시를_채운_뒤에도_비어있으면_반복하지_않고_503을_던진다() {
+		Auction auction = auctionWithCurrentPrice(15_000L);
+		stubRedis(16_000L, AuctionPriceRedisService.BidDecision.cacheMiss(), AuctionPriceRedisService.BidDecision.cacheMiss());
+		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(BidTemporarilyUnavailableException.class);
+
+		verify(priceRedisService, times(2)).tryBid(eq(AUCTION_ID), eq(16_000L), any(LocalDateTime.class));
+		verifyNoInteractions(transactionManager, bidRepository, eventPublisher);
+	}
+
+	@Test
+	void 캐시가_비었는데_경매가_없으면_캐시를_채우지_않고_예외를_던진다() {
+		stubRedis(16_000L, AuctionPriceRedisService.BidDecision.cacheMiss());
+		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(IllegalArgumentException.class);
+
+		verify(priceRedisService, never()).prime(any());
+		verifyNoInteractions(transactionManager);
+	}
+
+	@Test
+	void Redis에서는_이겼지만_DB반영이_0건이면_503을_던지고_캐시는_지우지_않는다() {
+		// 더 높은 입찰이 먼저 커밋됐거나(커밋 순서 역전), 관리자 상태 변경·마감이 끼어든 경우.
+		// 전자는 Redis가 이미 맞는 값이고, 후자는 AuctionBidCacheInvalidator가 커밋 후 지운다.
+		stubRedis(16_000L, win(16_000L));
+		when(auctionRepository.updateIfHigherPrice(AUCTION_ID, 16_000L, END_AT, AuctionStatus.ONGOING))
+				.thenReturn(0);
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(BidTemporarilyUnavailableException.class);
+
+		verify(priceRedisService, never()).invalidate(any());
+		verify(bidRepository, never()).save(any());
+		verify(eventPublisher, never()).publishEvent(any(Object.class));
+	}
+
+	@Test
+	void Redis에서_이긴_뒤_DB반영중_예외가나면_캐시를_지우고_원래예외를_그대로던진다() {
+		stubRedis(16_000L, win(16_000L));
+		when(auctionRepository.updateIfHigherPrice(AUCTION_ID, 16_000L, END_AT, AuctionStatus.ONGOING))
+				.thenThrow(new RuntimeException("DB 에러 시뮬레이션"));
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(RuntimeException.class)
+				.hasMessage("DB 에러 시뮬레이션"); // 원래 예외가 가려지지 않고 그대로 전파돼야 한다
+
+		verify(priceRedisService).invalidate(AUCTION_ID);
+		verify(eventPublisher, never()).publishEvent(any(Object.class));
+	}
+
+	@Test
+	void 캐시_삭제까지_실패해도_원래_DB_예외를_그대로_던진다() {
+		stubRedis(16_000L, win(16_000L));
+		when(auctionRepository.updateIfHigherPrice(AUCTION_ID, 16_000L, END_AT, AuctionStatus.ONGOING))
+				.thenThrow(new RuntimeException("DB 에러 시뮬레이션"));
+		doThrow(new RuntimeException("Redis 연결 실패 시뮬레이션")).when(priceRedisService).invalidate(AUCTION_ID);
+
+		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
+				.isInstanceOf(RuntimeException.class)
+				.hasMessage("DB 에러 시뮬레이션");
 	}
 
 	@Test
 	void DB_반영_중_행_락을_3초_안에_못_얻으면_Redis_캐시를_지우고_503으로_바꿔_던진다() {
-		Auction auction = auctionWithCurrentPrice(15_000L);
-		when(auctionRepository.findById(AUCTION_ID)).thenReturn(Optional.of(auction));
-		when(priceRedisService.tryUpdateCurrentPrice(AUCTION_ID, 16_000L, auction.getMinBidUnit()))
-				.thenReturn(AuctionPriceRedisService.UpdateResult.SUCCESS);
+		stubRedis(16_000L, win(16_000L));
 		// 다른 트랜잭션이 행을 잡고 있어서 lock_timeout(3초)이 난 상황
-		when(auctionRepository.updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any()))
+		when(auctionRepository.updateIfHigherPrice(AUCTION_ID, 16_000L, END_AT, AuctionStatus.ONGOING))
 				.thenThrow(new PessimisticLockingFailureException("lock timeout 시뮬레이션"));
 
 		assertThatThrownBy(() -> bidService.submitBid(AUCTION_ID, BIDDER_ID, 16_000L))
@@ -385,9 +488,9 @@ import static org.mockito.Mockito.lenient;
 		// UPDATE 전에 같은 트랜잭션에서 3초 제한을 걸었는지
 		InOrder order = inOrder(entityManager, auctionRepository);
 		order.verify(entityManager).createNativeQuery("SET LOCAL lock_timeout = '3000ms'");
-		order.verify(auctionRepository).updateIfHigherPrice(eq(AUCTION_ID), any(), any(), any(), any());
+		order.verify(auctionRepository).updateIfHigherPrice(AUCTION_ID, 16_000L, END_AT, AuctionStatus.ONGOING);
 		// Redis는 이겼다고 기록했는데 DB엔 못 들어갔으니 캐시를 지워야 한다
-		verify(priceRedisService).invalidateCurrentPrice(AUCTION_ID);
+		verify(priceRedisService).invalidate(AUCTION_ID);
 		verify(eventPublisher, never()).publishEvent(any(Object.class));
 	}
 }
