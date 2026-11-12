@@ -1,6 +1,5 @@
 package com.artbid.member.auth;
 
-import com.artbid.member.domain.MemberRole;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,13 +36,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (header != null && header.startsWith(PREFIX)) {
             String token = header.substring(PREFIX.length());
-            Long memberId = jwtTokenProvider.parseMemberId(token);
-            if (memberId != null) {
-                MemberRole role = jwtTokenProvider.parseRole(token);
-                if (role != null) {
-                    request.setAttribute(ROLE_ATTRIBUTE, role);
+            // 요청당 한 번만 서명을 검증하고, 회원 ID와 역할을 같이 꺼낸다.
+            // (예전에는 parseMemberId와 parseRole을 따로 불러서 검증을 두 번 했다)
+            JwtTokenProvider.TokenClaims claims = jwtTokenProvider.parse(token);
+            if (claims != null) {
+                if (claims.role() != null) {
+                    request.setAttribute(ROLE_ATTRIBUTE, claims.role());
                 }
-                filterChain.doFilter(new PrincipalRequestWrapper(request, memberId), response);
+                filterChain.doFilter(new PrincipalRequestWrapper(request, claims.memberId()), response);
                 return;
             }
         }
