@@ -7,7 +7,12 @@ import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.chat.domain.ChatMessage;
 import com.artbid.chat.dto.ChatMessageResponse;
 import com.artbid.chat.exception.ChatAuthRequiredException;
+import com.artbid.chat.config.LiveChatProperties;
 import com.artbid.chat.exception.ChatNotAvailableException;
+import com.artbid.chat.exception.ChatRateLimitExceededException;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+import java.time.Duration;
 import com.artbid.chat.repository.ChatMessageRepository;
 import com.artbid.infra.realtime.AuctionSseRegistry;
 import com.artbid.member.domain.Member;
@@ -34,6 +39,7 @@ class LiveChatServiceTest {
 	private static final Long CONSIGNOR_ID = 100L;
 	private static final Long BIDDER_ID = 7L;
 	private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 13, 20, 0);
+	private static final String RATE_KEY = "chat:rate:1:7";
 
 	private ChatMessageRepository chatMessageRepository;
 	private LivestreamRepository livestreamRepository;
@@ -41,6 +47,9 @@ class LiveChatServiceTest {
 	private AuctionRepository auctionRepository;
 	private ArtworkRepository artworkRepository;
 	private AuctionSseRegistry sseRegistry;
+	private StringRedisTemplate redisTemplate;
+	private ValueOperations<String, String> valueOperations;
+	private LiveChatProperties properties;
 	private LiveChatService liveChatService;
 
 	@BeforeEach
@@ -51,8 +60,13 @@ class LiveChatServiceTest {
 		auctionRepository = mock(AuctionRepository.class);
 		artworkRepository = mock(ArtworkRepository.class);
 		sseRegistry = mock(AuctionSseRegistry.class);
+		redisTemplate = mock(StringRedisTemplate.class);
+		valueOperations = mock(ValueOperations.class);
+		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+		when(valueOperations.increment(RATE_KEY)).thenReturn(1L);
+		properties = new LiveChatProperties();
 		liveChatService = new LiveChatService(chatMessageRepository, livestreamRepository, memberRepository,
-				auctionRepository, artworkRepository, sseRegistry);
+				auctionRepository, artworkRepository, sseRegistry, redisTemplate, properties);
 
 		when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
 	}
@@ -155,6 +169,30 @@ class LiveChatServiceTest {
 		assertThatThrownBy(() -> liveChatService.send(AUCTION_ID, BIDDER_ID, "안녕하세요"))
 				.isInstanceOf(ChatAuthRequiredException.class);
 		verify(chatMessageRepository, never()).save(any());
+	}
+
+	@Test
+	void 첫_메시지에만_제한_기간을_건다() {
+		when(livestreamRepository.findByAuctionId(AUCTION_ID)).thenReturn(Optional.of(liveStream()));
+		givenMember(BIDDER_ID, "홍길동");
+		when(valueOperations.increment(RATE_KEY)).thenReturn(1L, 2L);
+
+		liveChatService.send(AUCTION_ID, BIDDER_ID, "하나");
+		liveChatService.send(AUCTION_ID, BIDDER_ID, "둘");
+
+		verify(redisTemplate, times(1)).expire(RATE_KEY, Duration.ofSeconds(10));
+	}
+
+	@Test
+	void 제한_횟수를_넘으면_저장하지_않고_막는다() {
+		when(livestreamRepository.findByAuctionId(AUCTION_ID)).thenReturn(Optional.of(liveStream()));
+		givenMember(BIDDER_ID, "홍길동");
+		when(valueOperations.increment(RATE_KEY)).thenReturn(6L);
+
+		assertThatThrownBy(() -> liveChatService.send(AUCTION_ID, BIDDER_ID, "도배"))
+				.isInstanceOf(ChatRateLimitExceededException.class);
+		verify(chatMessageRepository, never()).save(any());
+		verifyNoInteractions(sseRegistry);
 	}
 
 	@Test

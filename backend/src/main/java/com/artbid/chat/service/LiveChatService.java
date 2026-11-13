@@ -7,7 +7,10 @@ import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.chat.domain.ChatMessage;
 import com.artbid.chat.dto.ChatMessageResponse;
 import com.artbid.chat.exception.ChatAuthRequiredException;
+import com.artbid.chat.config.LiveChatProperties;
 import com.artbid.chat.exception.ChatNotAvailableException;
+import com.artbid.chat.exception.ChatRateLimitExceededException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import com.artbid.chat.repository.ChatMessageRepository;
 import com.artbid.infra.realtime.AuctionSseRegistry;
 import com.artbid.member.domain.Member;
@@ -36,6 +39,7 @@ public class LiveChatService {
 
 	static final int DEFAULT_HISTORY_SIZE = 50;
 	static final int MAX_HISTORY_SIZE = 100;
+	private static final String RATE_LIMIT_KEY_PREFIX = "chat:rate:";
 
 	private final ChatMessageRepository chatMessageRepository;
 	private final LivestreamRepository livestreamRepository;
@@ -43,6 +47,8 @@ public class LiveChatService {
 	private final AuctionRepository auctionRepository;
 	private final ArtworkRepository artworkRepository;
 	private final AuctionSseRegistry sseRegistry;
+	private final StringRedisTemplate redisTemplate;
+	private final LiveChatProperties properties;
 
 	/**
 	 * 채팅을 보낸다. 방송이 열려 있는 동안(연결이 잠시 끊긴 상태 포함)만 받는다.
@@ -56,6 +62,8 @@ public class LiveChatService {
 
 		// 토큰은 유효하지만 회원이 없는 경우(탈퇴 등)도 로그인 필요로 본다.
 		Member sender = memberRepository.findById(senderId).orElseThrow(ChatAuthRequiredException::new);
+
+		enforceRateLimit(auctionId, senderId);
 
 		ChatMessage saved = chatMessageRepository.save(ChatMessage.of(
 				auctionId, senderId, displayName(sender), isConsignor(auctionId, senderId), content,
@@ -80,6 +88,21 @@ public class LiveChatService {
 		List<ChatMessage> oldestFirst = new ArrayList<>(newestFirst);
 		Collections.reverse(oldestFirst);
 		return oldestFirst.stream().map(ChatMessageResponse::from).toList();
+	}
+
+	/**
+	 * 회원별로 경매마다 설정된 기간 동안 보낼 수 있는 횟수를 센다. 첫 메시지에만 TTL을 거는 고정 윈도우 방식으로,
+	 * 시청 토큰 발급 제한(StreamingTokenService)과 같다.
+	 */
+	private void enforceRateLimit(Long auctionId, Long senderId) {
+		String key = RATE_LIMIT_KEY_PREFIX + auctionId + ":" + senderId;
+		Long count = redisTemplate.opsForValue().increment(key);
+		if (count != null && count == 1L) {
+			redisTemplate.expire(key, properties.getRateLimitWindow());
+		}
+		if (count != null && count > properties.getRateLimit()) {
+			throw new ChatRateLimitExceededException();
+		}
 	}
 
 	private String displayName(Member member) {

@@ -2,6 +2,7 @@ package com.artbid.chat.controller;
 
 import com.artbid.chat.exception.ChatAuthRequiredException;
 import com.artbid.chat.exception.ChatNotAvailableException;
+import com.artbid.chat.exception.ChatRateLimitExceededException;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -31,6 +32,12 @@ public class LiveChatExceptionHandler {
 	public ResponseEntity<ErrorResponse> notAvailable(ChatNotAvailableException e) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(new ErrorResponse("CHAT_NOT_AVAILABLE", e.getMessage()));
+	}
+
+	@ExceptionHandler(ChatRateLimitExceededException.class)
+	public ResponseEntity<ErrorResponse> rateLimited(ChatRateLimitExceededException e) {
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+				.body(new ErrorResponse("CHAT_RATE_LIMITED", e.getMessage()));
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)

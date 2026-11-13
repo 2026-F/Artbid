@@ -86,6 +86,9 @@ app:
     reconnect:
       timeout: 2m        # 끊긴 뒤 이 시간 안에 재연결 못 하면 자동으로 방송 종료
       sweep-interval-ms: 30000
+  chat:
+    rate-limit: 5          # 회원 한 명이 경매 하나에서 rate-limit-window 동안 보낼 수 있는 채팅 수
+    rate-limit-window: 10s
   jwt:
     secret: ${JWT_SECRET:local-dev-only-please-change-this-secret-before-prod-32}
   certificate:

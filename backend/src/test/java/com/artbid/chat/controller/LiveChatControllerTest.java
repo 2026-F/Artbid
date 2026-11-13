@@ -2,6 +2,7 @@ package com.artbid.chat.controller;
 
 import com.artbid.chat.dto.ChatMessageResponse;
 import com.artbid.chat.exception.ChatNotAvailableException;
+import com.artbid.chat.exception.ChatRateLimitExceededException;
 import com.artbid.chat.service.LiveChatService;
 import com.artbid.common.exception.GlobalExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
@@ -108,6 +109,16 @@ class LiveChatControllerTest {
 						.content("{\"content\":\"안녕하세요\"}"))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("CHAT_NOT_AVAILABLE"));
+	}
+
+	@Test
+	void 너무_빠르게_보내면_429() throws Exception {
+		when(service.send(any(), any(), any())).thenThrow(new ChatRateLimitExceededException());
+
+		mvc.perform(post(URL).principal(BIDDER).contentType(MediaType.APPLICATION_JSON)
+						.content("{\"content\":\"안녕하세요\"}"))
+				.andExpect(status().isTooManyRequests())
+				.andExpect(jsonPath("$.code").value("CHAT_RATE_LIMITED"));
 	}
 
 	@Test
