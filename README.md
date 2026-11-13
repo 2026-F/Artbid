@@ -31,6 +31,7 @@ ArtBid: 신진작가와 초보 컬렉터를 위한 미술품 경매 웹앱
 | 안티 스나이핑 | 남은 시간을 초 단위로 계산해 30초 이하인 유효 입찰이면 기존 마감 시각에 30초를 더한다. 경계 조건은 [Auction](backend/src/main/java/com/artbid/auction/domain/Auction.java)과 테스트를 확인한다. |
 | 작가와 작품 | 작가 API, 작품 등록과 검색, 상세 조회, 수정 및 심사 API가 있다. 권한 처리는 엔드포인트별로 확인해야 한다. |
 | 라이브 방송 | AWS IVS Real-Time 스테이지 생성, 참여 토큰, QR, 연결 끊김과 재연결 상태 처리를 구현했다. 실제 AWS 통합 검증은 관련 PR의 미검증 항목을 확인한다. |
+| 라이브 채팅 | 방송이 열려 있는 동안 로그인 회원이 `POST /api/auctions/{id}/chat/messages`로 보내고, 경매 SSE의 `auction-chat` 이벤트로 전파한다. 최근 대화는 같은 경로의 GET으로 누구나 조회한다. 회원별 전송 횟수를 Redis로 제한한다. 다중 인스턴스 전파는 입찰 알림과 같이 미구현이다. |
 | 미디어 | S3 호환 저장소의 presigned URL 업로드와 MediaConvert 처리 상태 관리가 있다. 로컬 미디어 저장소는 MinIO이다. |
 | 회원 | 회원가입, JWT 로그인, 회원 조회와 수정이 있다. 로그아웃 API는 204 응답을 반환하며 해당 엔드포인트에서 토큰을 무효화하지 않는다. 권한 검증 범위는 기능별 확인이 필요하다. |
 | 결제 | Mock PG와 Toss 결제 승인 연동 코드가 있다. 결과 불명 상태의 복구와 판매자 지급 배치 등 후속 범위는 별도 확인이 필요하다. |
@@ -106,7 +107,7 @@ Artbid/
 | 담당 영역 | 관련 패키지 |
 | --- | --- |
 | 경매 코어 | `auction`, `infra/kafka`, `infra/redis` |
-| 라이브 스트리밍 | `streaming`, `infra/streaming` |
+| 라이브 스트리밍 | `streaming`, `chat`, `infra/streaming` |
 | 작품과 미디어 | `artist`, `artwork`, `media`, `infra/storage`, `infra/media` |
 | 회원, 결제, 정산 | `member`, `payment`, `settlement` |
 | 공통 영역 | `common`, `infra/realtime` 및 여러 영역에서 사용하는 연동 코드 |
