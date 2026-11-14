@@ -37,6 +37,7 @@ class MediaUploadPermissionTest {
 				.category(ArtworkCategory.PAINTING).startPrice(100_000L).build();
 		ReflectionTestUtils.setField(artwork, "id", 10L);
 		when(artworks.findById(10L)).thenReturn(Optional.of(artwork));
+		when(artworks.findByIdForUpdate(10L)).thenReturn(Optional.of(artwork));
 		when(urlProvider.issueUploadUrl(anyString(), anyString())).thenReturn("https://upload.example");
 		when(urlProvider.issuePublicUrl(anyString())).thenReturn("https://media.example/photo.jpg");
 		when(mediaRepository.findByArtworkIdOrderBySortOrder(10L)).thenReturn(List.of());

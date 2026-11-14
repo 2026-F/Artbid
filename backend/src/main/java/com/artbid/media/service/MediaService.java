@@ -7,9 +7,11 @@ import com.artbid.media.domain.ArtworkMedia;
 import com.artbid.media.domain.MediaType;
 import com.artbid.media.dto.PresignedUploadResponse;
 import com.artbid.media.exception.MediaAccessDeniedException;
+import com.artbid.media.exception.MediaTypeConflictException;
 import com.artbid.media.repository.ArtworkMediaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
@@ -39,8 +41,11 @@ public class MediaService {
 	// 업로드 완료 콜백 처리 — 동영상이면 MediaConvert 트랜스코딩 요청까지 트리거
 	// mediaType은 presigned URL 발급 시 판별해 내려준 값을 클라이언트가 그대로 돌려보낸다.
 	// (완료 시점에는 contentType을 알 수 없어 objectKey만으로는 PHOTO/VIDEO를 구분할 수 없음 — #11)
+	@Transactional
 	public void completeUpload(Long artworkId, Long memberId, boolean admin, String objectKey, String mediaTypeValue) {
-		requireUploadPermission(artworkId, memberId, admin);
+		Artwork artwork = artworkRepository.findByIdForUpdate(artworkId)
+				.orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다: " + artworkId));
+		requireUploadPermission(artwork, memberId, admin);
 		// 이 작품용으로 발급한 경로의 객체만 등록한다. 다른 작품이나 임의 경로의 객체를 연결하지 못하게 막는다.
 		if (objectKey == null || !objectKey.startsWith(objectKeyPrefix(artworkId)) || objectKey.contains("..")) {
 			throw new MediaAccessDeniedException("이 작품에 발급된 업로드 경로가 아닙니다.");
@@ -48,7 +53,17 @@ public class MediaService {
 
 		MediaType mediaType = MediaType.fromName(mediaTypeValue);
 		String objectUrl = s3PresignedUrlProvider.issuePublicUrl(objectKey);
-		int sortOrder = artworkMediaRepository.findByArtworkIdOrderBySortOrder(artworkId).size();
+		// 작품 행 락을 커밋까지 유지해 완료 재시도와 같은 작품의 동시 등록을 직렬화한다.
+		List<ArtworkMedia> registered = artworkMediaRepository.findByArtworkIdOrderBySortOrder(artworkId);
+		for (ArtworkMedia media : registered) {
+			if (objectUrl.equals(media.getUrl()) || objectUrl.equals(media.getSourceUrl())) {
+				if (media.getMediaType() != mediaType) {
+					throw new MediaTypeConflictException();
+				}
+				return;
+			}
+		}
+		int sortOrder = registered.size();
 
 		if (mediaType == MediaType.VIDEO) {
 			// 트랜스코딩 완료 전까지는 sourceUrl만 채우고 url은 비워둔다.
@@ -72,6 +87,10 @@ public class MediaService {
 	private void requireUploadPermission(Long artworkId, Long memberId, boolean admin) {
 		Artwork artwork = artworkRepository.findById(artworkId)
 				.orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다: " + artworkId));
+		requireUploadPermission(artwork, memberId, admin);
+	}
+
+	private void requireUploadPermission(Artwork artwork, Long memberId, boolean admin) {
 		if (!admin && !Objects.equals(artwork.getConsignorId(), memberId)) {
 			throw new MediaAccessDeniedException("작품을 등록한 위탁자만 미디어를 올릴 수 있습니다.");
 		}
