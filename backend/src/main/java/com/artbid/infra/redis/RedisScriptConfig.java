@@ -24,4 +24,10 @@ public class RedisScriptConfig {
 	public RedisScript<Long> primeBidStateScript() {
 		return RedisScript.of(new ClassPathResource("scripts/prime_bid_state.lua"), Long.class);
 	}
+
+	// 횟수 제한 카운터: 증가와 만료시간 설정을 한 번에 한다 (FixedWindowRateLimiter).
+	@Bean
+	public RedisScript<Long> fixedWindowCounterScript() {
+		return RedisScript.of(new ClassPathResource("scripts/fixed_window_counter.lua"), Long.class);
+	}
 }

@@ -10,8 +10,7 @@ import com.artbid.chat.exception.ChatAuthRequiredException;
 import com.artbid.chat.config.LiveChatProperties;
 import com.artbid.chat.exception.ChatNotAvailableException;
 import com.artbid.chat.exception.ChatRateLimitExceededException;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
+import com.artbid.infra.redis.FixedWindowRateLimiter;
 import java.time.Duration;
 import com.artbid.chat.repository.ChatMessageRepository;
 import com.artbid.infra.realtime.AuctionSseRegistry;
@@ -47,8 +46,7 @@ class LiveChatServiceTest {
 	private AuctionRepository auctionRepository;
 	private ArtworkRepository artworkRepository;
 	private AuctionSseRegistry sseRegistry;
-	private StringRedisTemplate redisTemplate;
-	private ValueOperations<String, String> valueOperations;
+	private FixedWindowRateLimiter rateLimiter;
 	private LiveChatProperties properties;
 	private LiveChatService liveChatService;
 
@@ -60,13 +58,11 @@ class LiveChatServiceTest {
 		auctionRepository = mock(AuctionRepository.class);
 		artworkRepository = mock(ArtworkRepository.class);
 		sseRegistry = mock(AuctionSseRegistry.class);
-		redisTemplate = mock(StringRedisTemplate.class);
-		valueOperations = mock(ValueOperations.class);
-		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-		when(valueOperations.increment(RATE_KEY)).thenReturn(1L);
+		rateLimiter = mock(FixedWindowRateLimiter.class);
+		when(rateLimiter.increment(RATE_KEY, Duration.ofSeconds(10))).thenReturn(1L);
 		properties = new LiveChatProperties();
 		liveChatService = new LiveChatService(chatMessageRepository, livestreamRepository, memberRepository,
-				auctionRepository, artworkRepository, sseRegistry, redisTemplate, properties);
+				auctionRepository, artworkRepository, sseRegistry, rateLimiter, properties);
 
 		when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
 	}
@@ -172,22 +168,22 @@ class LiveChatServiceTest {
 	}
 
 	@Test
-	void 첫_메시지에만_제한_기간을_건다() {
+	void 회원과_경매별_키로_설정된_기간_동안_횟수를_센다() {
 		when(livestreamRepository.findByAuctionId(AUCTION_ID)).thenReturn(Optional.of(liveStream()));
 		givenMember(BIDDER_ID, "홍길동");
-		when(valueOperations.increment(RATE_KEY)).thenReturn(1L, 2L);
+		when(rateLimiter.increment(RATE_KEY, Duration.ofSeconds(10))).thenReturn(1L, 2L);
 
 		liveChatService.send(AUCTION_ID, BIDDER_ID, "하나");
 		liveChatService.send(AUCTION_ID, BIDDER_ID, "둘");
 
-		verify(redisTemplate, times(1)).expire(RATE_KEY, Duration.ofSeconds(10));
+		verify(rateLimiter, times(2)).increment(RATE_KEY, Duration.ofSeconds(10));
 	}
 
 	@Test
 	void 제한_횟수를_넘으면_저장하지_않고_막는다() {
 		when(livestreamRepository.findByAuctionId(AUCTION_ID)).thenReturn(Optional.of(liveStream()));
 		givenMember(BIDDER_ID, "홍길동");
-		when(valueOperations.increment(RATE_KEY)).thenReturn(6L);
+		when(rateLimiter.increment(RATE_KEY, Duration.ofSeconds(10))).thenReturn(6L);
 
 		assertThatThrownBy(() -> liveChatService.send(AUCTION_ID, BIDDER_ID, "도배"))
 				.isInstanceOf(ChatRateLimitExceededException.class);

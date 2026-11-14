@@ -10,7 +10,7 @@ import com.artbid.chat.exception.ChatAuthRequiredException;
 import com.artbid.chat.config.LiveChatProperties;
 import com.artbid.chat.exception.ChatNotAvailableException;
 import com.artbid.chat.exception.ChatRateLimitExceededException;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import com.artbid.infra.redis.FixedWindowRateLimiter;
 import com.artbid.chat.repository.ChatMessageRepository;
 import com.artbid.infra.realtime.AuctionSseRegistry;
 import com.artbid.member.domain.Member;
@@ -47,7 +47,7 @@ public class LiveChatService {
 	private final AuctionRepository auctionRepository;
 	private final ArtworkRepository artworkRepository;
 	private final AuctionSseRegistry sseRegistry;
-	private final StringRedisTemplate redisTemplate;
+	private final FixedWindowRateLimiter rateLimiter;
 	private final LiveChatProperties properties;
 
 	/**
@@ -90,17 +90,10 @@ public class LiveChatService {
 		return oldestFirst.stream().map(ChatMessageResponse::from).toList();
 	}
 
-	/**
-	 * 회원별로 경매마다 설정된 기간 동안 보낼 수 있는 횟수를 센다. 첫 메시지에만 TTL을 거는 고정 윈도우 방식으로,
-	 * 시청 토큰 발급 제한(StreamingTokenService)과 같다.
-	 */
+	/** 회원별로 경매마다 설정된 기간 동안 보낼 수 있는 횟수를 센다. 시청 토큰 발급 제한과 같은 고정 윈도우 방식이다. */
 	private void enforceRateLimit(Long auctionId, Long senderId) {
 		String key = RATE_LIMIT_KEY_PREFIX + auctionId + ":" + senderId;
-		Long count = redisTemplate.opsForValue().increment(key);
-		if (count != null && count == 1L) {
-			redisTemplate.expire(key, properties.getRateLimitWindow());
-		}
-		if (count != null && count > properties.getRateLimit()) {
+		if (rateLimiter.increment(key, properties.getRateLimitWindow()) > properties.getRateLimit()) {
 			throw new ChatRateLimitExceededException();
 		}
 	}
