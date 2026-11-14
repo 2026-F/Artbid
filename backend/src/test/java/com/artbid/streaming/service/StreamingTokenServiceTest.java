@@ -13,8 +13,7 @@ import com.artbid.streaming.exception.StageTokenRateLimitExceededException;
 import com.artbid.streaming.repository.LivestreamRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
+import com.artbid.infra.redis.FixedWindowRateLimiter;
 import software.amazon.awssdk.services.ivsrealtime.model.ParticipantToken;
 import software.amazon.awssdk.services.ivsrealtime.model.ParticipantTokenCapability;
 
@@ -40,8 +39,7 @@ class StreamingTokenServiceTest {
 	private AuctionRepository auctionRepository;
 	private ArtworkRepository artworkRepository;
 	private IvsStageClient ivsStageClient;
-	private StringRedisTemplate redisTemplate;
-	private ValueOperations<String, String> valueOperations;
+	private FixedWindowRateLimiter rateLimiter;
 	private StageTokenProperties properties;
 	private StreamingTokenService streamingTokenService;
 
@@ -51,12 +49,10 @@ class StreamingTokenServiceTest {
 		auctionRepository = mock(AuctionRepository.class);
 		artworkRepository = mock(ArtworkRepository.class);
 		ivsStageClient = mock(IvsStageClient.class);
-		redisTemplate = mock(StringRedisTemplate.class);
-		valueOperations = mock(ValueOperations.class);
-		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+		rateLimiter = mock(FixedWindowRateLimiter.class);
 		properties = new StageTokenProperties();
 		streamingTokenService = new StreamingTokenService(
-				livestreamRepository, auctionRepository, artworkRepository, ivsStageClient, redisTemplate, properties);
+				livestreamRepository, auctionRepository, artworkRepository, ivsStageClient, rateLimiter, properties);
 
 		Livestream live = Livestream.builder().auctionId(AUCTION_ID).build();
 		live.activate(STAGE_ARN, LocalDateTime.now());
@@ -84,13 +80,13 @@ class StreamingTokenServiceTest {
 		assertThat(response.role()).isEqualTo("PUBLISH");
 		verify(ivsStageClient).createParticipantToken(
 				STAGE_ARN, "member-" + CONSIGNOR_ID, ParticipantTokenCapability.PUBLISH, properties.getPublishDuration());
-		verifyNoInteractions(valueOperations); // PUBLISH는 레이트리밋 대상이 아니다
+		verifyNoInteractions(rateLimiter); // PUBLISH는 레이트리밋 대상이 아니다
 	}
 
 	@Test
 	void 로그인했지만_위탁자가_아니면_SUBSCRIBE_토큰을_받는다() {
 		Long bidderId = 999L;
-		when(valueOperations.increment(anyString())).thenReturn(1L);
+		when(rateLimiter.increment(anyString(), any(Duration.class))).thenReturn(1L);
 
 		StageTokenResponse response = streamingTokenService.issueToken(AUCTION_ID, bidderId, CLIENT_IP);
 
@@ -101,7 +97,7 @@ class StreamingTokenServiceTest {
 
 	@Test
 	void 비로그인이면_게스트_ID로_SUBSCRIBE_토큰을_받는다() {
-		when(valueOperations.increment(anyString())).thenReturn(1L);
+		when(rateLimiter.increment(anyString(), any(Duration.class))).thenReturn(1L);
 
 		StageTokenResponse response = streamingTokenService.issueToken(AUCTION_ID, null, CLIENT_IP);
 
@@ -111,17 +107,17 @@ class StreamingTokenServiceTest {
 	}
 
 	@Test
-	void 첫_시청_토큰_발급이면_레이트리밋_TTL을_건다() {
-		when(valueOperations.increment(anyString())).thenReturn(1L);
+	void 시청_토큰_발급은_IP별_키와_설정된_기간으로_횟수를_센다() {
+		when(rateLimiter.increment(anyString(), any(Duration.class))).thenReturn(1L);
 
 		streamingTokenService.issueToken(AUCTION_ID, null, CLIENT_IP);
 
-		verify(redisTemplate).expire("stream:token:rate:" + CLIENT_IP, properties.getSubscribeRateLimitWindow());
+		verify(rateLimiter).increment("stream:token:rate:" + CLIENT_IP, properties.getSubscribeRateLimitWindow());
 	}
 
 	@Test
 	void 레이트리밋을_초과하면_429용_예외를_던진다() {
-		when(valueOperations.increment(anyString())).thenReturn((long) properties.getSubscribeRateLimit() + 1);
+		when(rateLimiter.increment(anyString(), any(Duration.class))).thenReturn((long) properties.getSubscribeRateLimit() + 1);
 
 		assertThatThrownBy(() -> streamingTokenService.issueToken(AUCTION_ID, null, CLIENT_IP))
 				.isInstanceOf(StageTokenRateLimitExceededException.class);
