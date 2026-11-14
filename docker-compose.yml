@@ -18,6 +18,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    # AOF: 쓰기 명령을 디스크 파일에 기록해 두고, 재시작하면 그걸 다시 읽어 복구한다.
+    # everysec = 1초마다 디스크에 저장. 장애가 나도 최대 1초치만 잃는다 (Stream 메시지 유실 방지).
+    command: [ "redis-server", "--appendonly", "yes", "--appendfsync", "everysec" ]
+    volumes:
+     - artbid-redis-data:/data   # 컨테이너를 지웠다 다시 띄워도 AOF 파일이 남도록
     ports:
       - "6379:6379"
     healthcheck:
@@ -116,6 +121,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/artbid
       SPRING_DATA_REDIS_HOST: redis
+
       # 기본값(10)이 k6 부하테스트에서 바로 꽉 차서 pending이 계속 쌓이는 걸 확인함.
       # Postgres max_connections=100이라 이 정도는 여유 있음. 값은 docker-compose.yml만
       # 고쳐서 바로 테스트 가능 (이미지 재빌드 불필요 — git pull + up -d --force-recreate면 적용됨).
@@ -130,3 +136,4 @@ services:
 volumes:
   artbid-postgres-data:
   artbid-grafana-data:
+  artbid-redis-data:

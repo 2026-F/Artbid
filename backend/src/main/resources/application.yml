@@ -28,6 +28,7 @@ spring:
     redis:
       host: localhost
       port: 6379
+      timeout: 2s
 
   kafka:
     bootstrap-servers: localhost:9092
