@@ -30,7 +30,7 @@ public class RedisStreamConfig {
 
         StreamMessageListenerContainerOptions<String, MapRecord<String, String, String>> options =
                 StreamMessageListenerContainerOptions.builder()
-                        .pollTimeout(Duration.ofSeconds(2)) // 한 번에 최대 2초 기다림
+                        .pollTimeout(Duration.ofSeconds(1)) // 한 번에 최대 2초 기다림
                         .batchSize(10)                      // 한 번에 최대 10건 가져옴
                         .errorHandler(e -> log.warn("[Stream] 읽기 실패: {}", e.getMessage()))
                         .build();
