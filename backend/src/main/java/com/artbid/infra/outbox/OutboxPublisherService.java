@@ -1,5 +1,7 @@
 package com.artbid.infra.outbox;
 
+import
+import com.artbid.infra.stream.RedisStreamPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -11,10 +13,9 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 실제로 outbox_event 테이블을 읽어서 Kafka로 발행하는 역할.
- * 주의: 이 클래스의 publishPendingEvents()는 반드시 "다른 빈(bean)"을 통해서
- * 호출되어야 @Transactional이 제대로 걸림. 스케줄러(OutboxPublisherScheduler)를
- * 별도 클래스로 분리해서, 거기서 이 빈을 호출하게 만들었음.
+ * outbox_event 테이블에서 아직 발행 안 된 이벤트를 읽어 Redis Stream으로 발행한다.
+ * 주의: publishPendingEvents()는 반드시 다른 빈(OutboxPublisherScheduler)을 통해 호출해야
+ * @Transactional이 걸린다 (같은 클래스 안에서 부르면 프록시를 안 거쳐서 트랜잭션이 안 걸림).
  */
 
 @Slf4j
@@ -26,7 +27,7 @@ public class OutboxPublisherService {
     private static final int MAX_RETRY = 5;
 
     private final OutboxEventRepository outboxEventRepository;
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final RedisStreamPublisher streamPublisher;
 
     @Transactional
     public void publishPendingEvents() {
@@ -34,17 +35,14 @@ public class OutboxPublisherService {
 
         for (OutboxEvent event : batch) {
             try {
-                // Kafka 발행은 성공했는데 DB에 published=true 저장은 못 하는 상황이 생길 수 있음.
-                // .get()으로 기다리면, 발행 성공 확인 -> 같은 트랜잭션에서 markPublished()까지
-                // 한 묶음으로 처리할 수 있음.
-                kafkaTemplate.send(event.getTopic(), event.getMessageKey(), event.getPayload())
-                        .get(5, TimeUnit.SECONDS);
-
+                // XADD는 동기 호출이라, 성공 응답을 받은 뒤에만 아래 markPublished로 넘어간다.
+                streamPublisher.publish(event.getTopic(), event.getMessageKey(), event.getPayload());
                 event.markPublished(LocalDateTime.now());
 
             } catch (Exception e) {
-                // 네트워크 오류, 타임아웃 등 — 발행 실패. 재시도 횟수만 올리고 다음 폴링에 다시 시도.
-                log.warn("Outbox 이벤트 발행 실패 (id={}, topic={}, retryCount={}): {}",
+                 // Redis 연결 실패, 타임아웃 등. 재시도 횟수만 올리고 다음 주기(1초 뒤)에 다시 시도한다.
+                // 발행은 됐는데 이 트랜잭션 커밋이 실패하면 다음 주기에 한 번 더 발행된다(중복).
+                // 그래서 소비자는 같은 메시지를 두 번 받아도 안전하게 만들어야 한다(멱등성).                log.warn("Outbox 이벤트 발행 실패 (id={}, topic={}, retryCount={}): {}",
                         event.getId(), event.getTopic(), event.getRetryCount() + 1, e.getMessage());
                 event.markRetryOrFailed(MAX_RETRY);
             }
