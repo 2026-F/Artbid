@@ -6,9 +6,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 주기적으로 OutboxPublisherService를 호출만 하는 얇은 트리거.
- * Kafka를 쓰지 않는 동안은 꺼둔다. 켜둔 채 브로커에 연결할 수 없으면 발행 대기가 단일 스케줄러 스레드를 막아
- * 경매 마감 같은 다른 스케줄 작업까지 밀린다.
+ * 1초마다 OutboxPublisherService를 호출하는 얇은 트리거.
+ * app.outbox.publisher.enabled=true일 때만 켜진다 (배포 서버는 OUTBOX_PUBLISHER_ENABLED 환경변수로 켬).
  */
 @Component
 @ConditionalOnProperty(name = "app.outbox.publisher.enabled", havingValue = "true")

@@ -18,6 +18,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    # AOF: 쓰기 명령을 디스크 파일에 기록해 두고, 재시작하면 그걸 다시 읽어 복구한다.
+    # everysec = 1초마다 디스크에 저장. 장애가 나도 최대 1초치만 잃는다 (Stream 메시지 유실 방지).
+    command: [ "redis-server", "--appendonly", "yes", "--appendfsync", "everysec" ]
+    volumes:
+     - artbid-redis-data:/data   # 컨테이너를 지웠다 다시 띄워도 AOF 파일이 남도록
     ports:
       - "6379:6379"
     healthcheck:
@@ -125,8 +130,12 @@ services:
       # SQL을 찍기 때문에 커넥션 사용 시간과 CPU를 직접 늘린다(부하테스트에서 평균 19ms 확인).
       # 로컬 bootRun에는 영향 없도록 컨테이너 환경변수로만 끈다.
       SPRING_JPA_SHOW_SQL: "false"
+      # outbox_event에 쌓인 이벤트(경매 마감 등)를 1초마다 Redis Stream으로 발행한다.
+      # application.yml 기본값은 false라서 로컬 bootRun에서는 꺼져 있고, 배포 서버에서만 켠다.
+      OUTBOX_PUBLISHER_ENABLED: "true"
 
 
 volumes:
   artbid-postgres-data:
   artbid-grafana-data:
+  artbid-redis-data:
