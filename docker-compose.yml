@@ -121,7 +121,6 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/artbid
       SPRING_DATA_REDIS_HOST: redis
-
       # 기본값(10)이 k6 부하테스트에서 바로 꽉 차서 pending이 계속 쌓이는 걸 확인함.
       # Postgres max_connections=100이라 이 정도는 여유 있음. 값은 docker-compose.yml만
       # 고쳐서 바로 테스트 가능 (이미지 재빌드 불필요 — git pull + up -d --force-recreate면 적용됨).
@@ -131,6 +130,9 @@ services:
       # SQL을 찍기 때문에 커넥션 사용 시간과 CPU를 직접 늘린다(부하테스트에서 평균 19ms 확인).
       # 로컬 bootRun에는 영향 없도록 컨테이너 환경변수로만 끈다.
       SPRING_JPA_SHOW_SQL: "false"
+      # outbox_event에 쌓인 이벤트(경매 마감 등)를 1초마다 Redis Stream으로 발행한다.
+      # application.yml 기본값은 false라서 로컬 bootRun에서는 꺼져 있고, 배포 서버에서만 켠다.
+      OUTBOX_PUBLISHER_ENABLED: "true"
 
 
 volumes:
