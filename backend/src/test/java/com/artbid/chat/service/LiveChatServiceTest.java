@@ -8,7 +8,9 @@ import com.artbid.chat.domain.ChatMessage;
 import com.artbid.chat.dto.ChatMessageResponse;
 import com.artbid.chat.exception.ChatAuthRequiredException;
 import com.artbid.chat.config.LiveChatProperties;
+import com.artbid.chat.exception.ChatNicknameRequiredException;
 import com.artbid.chat.exception.ChatNotAvailableException;
+import com.artbid.member.domain.MemberRole;
 import com.artbid.chat.exception.ChatRateLimitExceededException;
 import com.artbid.infra.redis.FixedWindowRateLimiter;
 import java.time.Duration;
@@ -77,10 +79,10 @@ class LiveChatServiceTest {
 		return livestream;
 	}
 
-	private void givenMember(Long memberId, String name) {
-		Member member = mock(Member.class);
-		when(member.getId()).thenReturn(memberId);
-		when(member.getName()).thenReturn(name);
+	/** 실명은 항상 "김실명"이고 닉네임만 바꿔 가며 만든다. nickname이 null이면 닉네임을 정하지 않은 회원이다. */
+	private void givenMember(Long memberId, String nickname) {
+		Member member = Member.signUp("member" + memberId + "@example.com", "hashed", "김실명", MemberRole.BIDDER);
+		member.updateNickname(nickname);
 		when(memberRepository.findById(memberId)).thenReturn(Optional.of(member));
 	}
 
@@ -119,11 +121,22 @@ class LiveChatServiceTest {
 	}
 
 	@Test
-	void 이름이_없는_회원은_회원번호로_표시한다() {
+	void 실명이_아니라_닉네임으로_표시한다() {
 		when(livestreamRepository.findByAuctionId(AUCTION_ID)).thenReturn(Optional.of(liveStream()));
-		givenMember(BIDDER_ID, " ");
+		givenMember(BIDDER_ID, " 그림좋아 ");
 
-		assertThat(liveChatService.send(AUCTION_ID, BIDDER_ID, "안녕하세요").senderName()).isEqualTo("회원7");
+		assertThat(liveChatService.send(AUCTION_ID, BIDDER_ID, "안녕하세요").senderName()).isEqualTo("그림좋아");
+	}
+
+	@Test
+	void 닉네임을_정하지_않은_회원은_보낼_수_없다() {
+		when(livestreamRepository.findByAuctionId(AUCTION_ID)).thenReturn(Optional.of(liveStream()));
+		givenMember(BIDDER_ID, null);
+
+		assertThatThrownBy(() -> liveChatService.send(AUCTION_ID, BIDDER_ID, "안녕하세요"))
+				.isInstanceOf(ChatNicknameRequiredException.class);
+		verify(chatMessageRepository, never()).save(any());
+		verifyNoInteractions(sseRegistry, rateLimiter);
 	}
 
 	@Test

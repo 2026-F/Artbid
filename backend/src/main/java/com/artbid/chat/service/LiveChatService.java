@@ -8,6 +8,7 @@ import com.artbid.chat.domain.ChatMessage;
 import com.artbid.chat.dto.ChatMessageResponse;
 import com.artbid.chat.exception.ChatAuthRequiredException;
 import com.artbid.chat.config.LiveChatProperties;
+import com.artbid.chat.exception.ChatNicknameRequiredException;
 import com.artbid.chat.exception.ChatNotAvailableException;
 import com.artbid.chat.exception.ChatRateLimitExceededException;
 import com.artbid.infra.redis.FixedWindowRateLimiter;
@@ -63,10 +64,15 @@ public class LiveChatService {
 		// 토큰은 유효하지만 회원이 없는 경우(탈퇴 등)도 로그인 필요로 본다.
 		Member sender = memberRepository.findById(senderId).orElseThrow(ChatAuthRequiredException::new);
 
+		// 조회 API가 비로그인에게도 열려 있어서 실명(name)은 채팅에 쓰지 않는다.
+		if (!sender.hasNickname()) {
+			throw new ChatNicknameRequiredException();
+		}
+
 		enforceRateLimit(auctionId, senderId);
 
 		ChatMessage saved = chatMessageRepository.save(ChatMessage.of(
-				auctionId, senderId, displayName(sender), isConsignor(auctionId, senderId), content,
+				auctionId, senderId, sender.getNickname(), isConsignor(auctionId, senderId), content,
 				LocalDateTime.now()));
 
 		ChatMessageResponse response = ChatMessageResponse.from(saved);
@@ -96,11 +102,6 @@ public class LiveChatService {
 		if (rateLimiter.increment(key, properties.getRateLimitWindow()) > properties.getRateLimit()) {
 			throw new ChatRateLimitExceededException();
 		}
-	}
-
-	private String displayName(Member member) {
-		String name = member.getName();
-		return name == null || name.isBlank() ? "회원" + member.getId() : name.trim();
 	}
 
 	/** 이 경매의 위탁 작품을 올린 본인인지. 채팅에 진행자 표시를 붙이는 데만 쓴다. */

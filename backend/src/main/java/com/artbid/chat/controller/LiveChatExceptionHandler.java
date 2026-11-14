@@ -1,6 +1,7 @@
 package com.artbid.chat.controller;
 
 import com.artbid.chat.exception.ChatAuthRequiredException;
+import com.artbid.chat.exception.ChatNicknameRequiredException;
 import com.artbid.chat.exception.ChatNotAvailableException;
 import com.artbid.chat.exception.ChatRateLimitExceededException;
 import org.springframework.core.annotation.Order;
@@ -32,6 +33,13 @@ public class LiveChatExceptionHandler {
 	public ResponseEntity<ErrorResponse> notAvailable(ChatNotAvailableException e) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(new ErrorResponse("CHAT_NOT_AVAILABLE", e.getMessage()));
+	}
+
+	/** 닉네임을 정하면 다시 보낼 수 있는 상태라 409로 알린다. */
+	@ExceptionHandler(ChatNicknameRequiredException.class)
+	public ResponseEntity<ErrorResponse> nicknameRequired(ChatNicknameRequiredException e) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("CHAT_NICKNAME_REQUIRED", e.getMessage()));
 	}
 
 	@ExceptionHandler(ChatRateLimitExceededException.class)
