@@ -27,6 +27,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.artbid.notification.domain.NotificationType;
+import com.artbid.notification.service.NotificationRequestedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 /**
  * 경매 마감 이벤트로 정산을 만드는 서비스 테스트.
  * 핵심은 같은 이벤트가 여러 번 와도 정산이 하나만 생기는지(멱등성), 다시 열린 경매가 있으면 옛 경매 정산을 만들지 않는지다.
@@ -42,6 +45,9 @@ class SettlementCreationServiceTest {
 	private AuctionRepository auctionRepository;
 	@InjectMocks
 	private SettlementCreationService service;
+
+	@Mock
+	private ApplicationEventPublisher eventPublisher;
 
 	private static final Long AUCTION_ID = 5L;
 	private static final Long ARTWORK_ID = 100L;
@@ -84,6 +90,13 @@ class SettlementCreationServiceTest {
 		// 결제 기한은 처리 시각이 아니라 마감 시각 기준 3일 뒤 (재처리돼도 기한이 밀리지 않는다)
 		assertThat(settlement.getPaymentDeadlineAt()).isEqualTo(CLOSED_AT.plusDays(3));
 		assertThat(artwork.getStatus()).isEqualTo(ArtworkStatus.SOLD);
+
+		// 낙찰자에게 알림이 한 번 간다
+		ArgumentCaptor<NotificationRequestedEvent> notice = ArgumentCaptor.forClass(NotificationRequestedEvent.class);
+		verify(eventPublisher).publishEvent(notice.capture());
+		assertThat(notice.getValue().memberId()).isEqualTo(BIDDER_ID);
+		assertThat(notice.getValue().type()).isEqualTo(NotificationType.AUCTION_WON);
+		assertThat(notice.getValue().message()).contains("무제", "15,000원", "11월 19일 12:00");
 	}
 
 	@Test
@@ -96,6 +109,8 @@ class SettlementCreationServiceTest {
 		assertThat(created).isFalse();
 		verify(settlementRepository, never()).saveAndFlush(any());
 		verify(artworkRepository, never()).findById(any());
+
+		verify(eventPublisher, never()).publishEvent(any());
 	}
 
 	@Test
@@ -110,5 +125,7 @@ class SettlementCreationServiceTest {
 		assertThat(created).isFalse();
 		verify(settlementRepository, never()).saveAndFlush(any());
 		verify(artworkRepository, never()).findById(any());
+
+		verify(eventPublisher, never()).publishEvent(any());
 	}
 }
