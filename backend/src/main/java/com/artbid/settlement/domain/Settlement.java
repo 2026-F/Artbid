@@ -15,7 +15,7 @@ public class Settlement {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
-	private Long id;ㅎ
+	private Long id;
 
 	private Long auctionId;
 	private Long winnerId;
