@@ -63,7 +63,8 @@ management:
 app:
   outbox:
     publisher:
-      enabled: ${OUTBOX_PUBLISHER_ENABLED:false} # Kafka를 쓰지 않는 동안 outbox 발행을 끈다
+      # 정산은 이 발행기가 보낸 경매 마감 이벤트로만 만들어진다. 끄면 정산이 생기지 않으므로 기본으로 켠다.
+      enabled: ${OUTBOX_PUBLISHER_ENABLED:true}
   settlement:
     seller-commission-rate: 0.10 # 위탁자 지급 시 떼는 판매 수수료율. 정책 미정이라 임시값
     batch:
