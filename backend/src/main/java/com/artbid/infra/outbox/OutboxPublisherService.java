@@ -41,6 +41,9 @@ public class OutboxPublisherService {
                 event.markPublished(now);
 
             } catch (Exception e) {
+                // Redis 연결 실패, 타임아웃 등. 실패 횟수에 따라 1초, 2초, 4초 ... 뒤에 다시 시도한다.
+                // 발행은 됐는데 이 트랜잭션 커밋이 실패하면 다음 주기에 한 번 더 발행된다(중복).
+                // 그래서 소비자는 같은 메시지를 두 번 받아도 안전하게 만들어야 한다(멱등성).
                 log.warn("Outbox 이벤트 발행 실패 (id={}, topic={}, retryCount={}): {}",
                         event.getId(), event.getTopic(), event.getRetryCount() + 1, e.getMessage());
                 event.markRetryOrFailed(MAX_RETRY, now);
