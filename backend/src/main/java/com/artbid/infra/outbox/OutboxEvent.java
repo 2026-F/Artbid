@@ -9,8 +9,8 @@ import java.time.LocalDateTime;
 
 /**
  * 아웃박스 패턴용 테이블
- * "Kafka로 보낼 이벤트"를 DB 트랜잭션 안에서 이 테이블에 같이 저장해두고,
- *   별도 OutboxPublisherService가 나중에 읽어서 Kafka로 보낸다.
+ * "Redis Stream으로 보낼 이벤트"를 DB 트랜잭션 안에서 이 테이블에 같이 저장해두고,
+ *   별도 OutboxPublisherService가 나중에 읽어서 Redis Stream(stream:{topic})으로 보낸다.
  * - "DB 커밋 = 나중에 반드시 발행하겠다는 약속"이 되는 구조.
  */
 @Entity
@@ -23,14 +23,14 @@ public class OutboxEvent {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 어떤 Kafka 토픽으로 보낼지. 토픽 이름을 저장
+    // 어떤 Stream으로 보낼지. 토픽 이름을 저장 (Stream 키는 "stream:" + topic)
     @Column(nullable = false, length = 100)
     private String topic;
 
     @Column(nullable = false, length = 100)
     private String messageKey;
 
-    // 실제로 Kafka에 보낼 내용. JSON 문자열로 저장한다.
+    // 실제로 Stream에 보낼 내용. JSON 문자열로 저장한다.
     @Column(nullable = false, columnDefinition = "TEXT")
     private String payload;
 

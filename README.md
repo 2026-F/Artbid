@@ -50,9 +50,9 @@ MSA 전환 시 다음 세 서비스로 분리할 예정이다.
 서비스 분리에 따라 레포 구성과 코드 경로도 변경될 수 있다. 저장소 분리 방식, 데이터 소유권, 서비스 간 통신과 인증 방식은 별도 설계 대상이다.
 아래 폴더 구조와 실행 명령은 현재 구성 기준이다. 구조 변경 시 README, CLAUDE.md, AGENTS.md의 참조 경로, CI와 실행 안내를 함께 갱신하고 기존 작업 기록의 연결을 유지한다.
 
-- 경매와 입찰에 Kafka 도입 예정. 구체적인 역할과 적용 방식은 후속 설계에서 결정한다.
-- Redis는 경매 실시간 상태(현재가, 마감 시각) 캐시에 쓰기 시작했다. 입찰 처리 등 다른 역할로의 확대 여부는 미정이다. 초기 Redis/Lua 입찰 설계(`BidLuaExecutor`)만으로 유지 또는 제거를 확정하지 않는다.
-- 현재 입찰 경로는 PostgreSQL 행 락과 커밋 후 SSE이다. Redis와 Kafka 관련 코드가 있다는 사실만으로 이벤트 저장이나 다중 인스턴스 전파가 완성된 것은 아니다.
+- Kafka는 쓰지 않는다. 부하테스트에서 입찰 저장(DB 쓰기)이 병목이 아니어서 비동기로 뺄 이유가 없었고, 경매 마감 이벤트는 Transactional Outbox → Redis Streams로 전달한다. 소비자가 이 이벤트로 정산을 만든다.
+- Redis는 입찰 판정(Lua 스크립트), 경매 실시간 상태 캐시, 마감 이벤트 전달(Streams)에 쓴다. Streams 유실 방지를 위해 AOF를 켠다.
+- 현재 입찰 경로는 Redis Lua 판정 → 이긴 입찰만 PostgreSQL 조건부 UPDATE → 커밋 후 SSE이다. SSE 전파는 아직 서버 한 대 안에서만 동작한다.
 
 ### 남은 구현과 확인 사항
 
@@ -69,9 +69,9 @@ MSA 전환 시 다음 세 서비스로 분리할 예정이다.
 | 프레임워크 | Spring Boot 3.3.4 | REST API와 애플리케이션 구성 |
 | 데이터 접근 | Spring Data JPA | 도메인 저장과 조회, 입찰 행 락 처리 |
 | 데이터베이스 | PostgreSQL 16 | 회원, 작품, 경매, 결제 등 데이터 저장 |
-| Redis 연동 | Redis 7, Spring Data Redis | 경매 실시간 상태 캐시. 장애 시 DB로 대체. 그 밖의 역할은 미정 |
-| 이벤트 처리 | Kafka, Spring Kafka | 경매와 입찰에 도입 예정. 관련 코드와 확장 인프라 존재 |
-| 실시간 알림 | SSE | 입찰 커밋 후 경매 상태 전파. 현재 서버 안 Spring 이벤트로 전달하며 Kafka 도입 후 발행 지점 교체 예정 |
+| Redis 연동 | Redis 7, Spring Data Redis | 입찰 판정(Lua), 경매 실시간 상태 캐시, 마감 이벤트 전달(Streams). 캐시가 비면 DB에서 다시 채움 |
+| 이벤트 처리 | Transactional Outbox, Redis Streams | 경매 마감 이벤트를 유실 없이 전달하고 소비자가 정산 생성. Kafka는 쓰지 않음 |
+| 실시간 알림 | SSE | 입찰 커밋 후 경매 상태 전파. 현재 서버 안 Spring 이벤트로 전달하며, 다중 인스턴스 전파는 Redis Pub/Sub 도입 예정 |
 | 인증 | JWT, JJWT, Spring Security Crypto | 토큰 처리와 비밀번호 해싱 |
 | 라이브 방송 | AWS IVS Real-Time | 스테이지와 참여 토큰 관리 |
 | 파일 저장 | S3 호환 저장소, MinIO | Presigned URL 업로드. 로컬 저장소는 MinIO |
@@ -106,7 +106,7 @@ Artbid/
 
 | 담당 영역 | 관련 패키지 |
 | --- | --- |
-| 경매 코어 | `auction`, `infra/kafka`, `infra/redis` |
+| 경매 코어 | `auction`, `infra/redis`, `infra/stream`, `infra/outbox` |
 | 라이브 스트리밍 | `streaming`, `chat`, `infra/streaming` |
 | 작품과 미디어 | `artist`, `artwork`, `media`, `infra/storage`, `infra/media` |
 | 회원, 결제, 정산 | `member`, `payment`, `settlement` |
@@ -133,13 +133,6 @@ docker compose up -d postgres redis
 docker compose --profile media up -d minio
 ```
 
-현재 Compose에서 Kafka와 Zookeeper는 `expansion` 프로필에 있다. Kafka 연동 작업 시 실행한다.
-
-```sh
-docker compose --profile expansion up -d zookeeper kafka
-```
-
-Kafka 도입 후에는 실제 실행 경로에 맞춰 기본 인프라와 검증 안내도 갱신한다.
 Compose의 `backend` 서비스는 배포 이미지를 사용하므로, 현재 소스 변경을 확인할 때는 아래처럼 Gradle로 실행한다.
 
 ```sh
