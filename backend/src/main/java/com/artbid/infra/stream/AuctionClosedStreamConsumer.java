@@ -1,6 +1,6 @@
 package com.artbid.infra.stream;
 
-import com.artbid.infra.kafka.AuctionClosedMessage;
+import com.artbid.auction.event.AuctionClosedMessage;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

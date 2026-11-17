@@ -13,17 +13,15 @@ import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.artbid.infra.kafka.AuctionClosedMessage;
+import com.artbid.auction.event.AuctionClosedMessage;
 import com.artbid.infra.outbox.OutboxEvent;
 import com.artbid.infra.outbox.OutboxEventRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 
 @Slf4j
