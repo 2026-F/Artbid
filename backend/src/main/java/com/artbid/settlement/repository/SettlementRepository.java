@@ -35,4 +35,7 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
 	List<Settlement> findByWinnerIdOrderByIdDesc(Long winnerId);
 
 	List<Settlement> findByWinnerIdAndPaymentStatusOrderByIdDesc(Long winnerId, PaymentStatus paymentStatus);
+
+	// 경매 마감 이벤트 멱등 처리: 이 경매의 정산이 이미 있는지
+	boolean existsByAuctionId(Long auctionId);
 }

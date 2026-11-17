@@ -1,6 +1,6 @@
 package com.artbid.infra.stream;
 
-import com.artbid.infra.kafka.AuctionClosedMessage;
+import com.artbid.auction.event.AuctionClosedMessage;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +28,11 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
+import com.artbid.settlement.service.SettlementCreationService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.dao.DataIntegrityViolationException;
+
 /**
  * stream:auction.closed 를 읽는 소비자.
  *
@@ -39,7 +44,7 @@ import java.util.Map;
  *      (서버가 처리 도중 죽었을 때도 다른 서버/재시작한 서버가 이어서 처리한다)
  *   5) 5번 넘게 실패하면 dead-letter Stream으로 옮기고 ACK (무한 재시도 방지)
  *
- *  정산 생성은 다음 PR에서 옮긴다.
+ *  handle(): 마감 이벤트로 정산을 만들고 작품을 판매완료로 바꾼다 (SettlementCreationService).
  */
 
 @Slf4j
@@ -56,6 +61,9 @@ public class AuctionClosedStreamConsumer implements StreamListener<String, MapRe
     private final StringRedisTemplate redisTemplate;
     private final StreamMessageListenerContainer<String, MapRecord<String, String, String>> container;
     private final String consumerName = RedisStreamConfig.consumerName();
+
+    private final ObjectMapper objectMapper;
+    private final SettlementCreationService settlementCreationService;
 
     @PostConstruct
     void subscribe() {
@@ -116,9 +124,22 @@ public class AuctionClosedStreamConsumer implements StreamListener<String, MapRe
         }
     }
 
-    /** 실제 처리. 지금은 파이프라인 확인용으로 로그만 남긴다. */
-    void handle(String payload) {
-        log.info("[Stream] auction.closed 수신: {}", payload);
+    /**
+     * 실제 처리: 마감 이벤트로 정산을 만든다.
+     * 예외가 나면 process()가 ACK를 안 해서 pending에 남고, 60초 뒤 다시 처리된다.
+     */
+    void handle(String payload) throws JsonProcessingException {
+        AuctionClosedMessage message = objectMapper.readValue(payload, AuctionClosedMessage.class);
+        try {
+            settlementCreationService.createForClosedAuction(message);
+        } catch (DataIntegrityViolationException e) {
+            // 다른 소비자가 같은 이벤트로 동시에 정산을 만든 경우(유니크 제약 위반). 이미 처리된 것이니 성공으로 본다.
+            // 다른 이유의 제약 위반일 수도 있어서, 정산이 실제로 있을 때만 넘어가고 아니면 다시 던져 재시도한다.
+            if (!settlementCreationService.exists(message.auctionId())) {
+                throw e;
+            }
+            log.info("[Stream] auctionId={} 다른 소비자가 이미 정산을 만들어 건너뜀", message.auctionId());
+        }
     }
 
     private void ack(RecordId id) {

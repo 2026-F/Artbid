@@ -1,19 +1,16 @@
 package com.artbid.auction.service;
 
-import com.artbid.artwork.domain.Artwork;
-import com.artbid.artwork.domain.ArtworkCategory;
-import com.artbid.artwork.domain.ArtworkStatus;
-import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.domain.Auction;
 import com.artbid.auction.domain.AuctionStatus;
 import com.artbid.auction.domain.Bid;
+import com.artbid.auction.event.AuctionClosedMessage;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.auction.repository.BidRepository;
-import com.artbid.infra.realtime.AuctionSseRegistry;
+import com.artbid.infra.outbox.OutboxEvent;
 import com.artbid.infra.outbox.OutboxEventRepository;
-import com.artbid.settlement.domain.Settlement;
-import com.artbid.settlement.repository.SettlementRepository;
+import com.artbid.infra.realtime.AuctionSseRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,19 +37,15 @@ class AuctionClosingServiceTest {
 	@Mock
 	private AuctionRepository auctionRepository;
 	@Mock
-	private ArtworkRepository artworkRepository;
-	@Mock
 	private BidRepository bidRepository;
-	@Mock
-	private SettlementRepository settlementRepository;
 	@Mock
 	private AuctionSseRegistry sseRegistry;
 	@Mock
 	private OutboxEventRepository outboxEventRepository;
 
-	// ObjectMapper는 굳이 mock으로 안 만들고 실제 객체를 그대로 사용.
-	// writeValueAsString()이 진짜로 동작해야 OutboxEvent에 들어갈 payload가 null이 아니게 됨.
-	private final ObjectMapper objectMapper = new ObjectMapper();
+	// 실제 ObjectMapper를 쓴다. LocalDateTime(closedAt)을 직렬화하려면 날짜·시간 모듈이 필요해서 findAndAddModules()로 등록한다.
+	// (스프링이 만드는 ObjectMapper에는 이미 등록돼 있다)
+	private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
 
 	private AuctionClosingService auctionClosingService;
 
@@ -63,8 +56,7 @@ class AuctionClosingServiceTest {
 	@BeforeEach
 	void setUp() {
 		auctionClosingService = new AuctionClosingService(
-				auctionRepository, artworkRepository, bidRepository, settlementRepository, sseRegistry,
-				outboxEventRepository, objectMapper);
+				auctionRepository, bidRepository, sseRegistry, outboxEventRepository, objectMapper);
 	}
 
 	private Auction auctionWithCurrentPrice(Long currentPrice, LocalDateTime auctionEndAt) {
@@ -81,46 +73,38 @@ class AuctionClosingServiceTest {
 				.build();
 	}
 
-	private Artwork artworkInAuction() {
-		Artwork artwork = Artwork.builder()
-				.consignorId(1L)
-				.artistId(2L)
-				.title("무제")
-				.category(ArtworkCategory.PAINTING)
-				.startPrice(10_000L)
-				.build();
-		ReflectionTestUtils.setField(artwork, "status", ArtworkStatus.IN_AUCTION);
-		return artwork;
-	}
-
 	@Test
-	void 낙찰자가_있으면_정산을_생성하고_작품을_판매완료로_바꾸고_마감알림을_보낸다() {
+	void 낙찰자가_있으면_정산에_필요한_값을_담아_마감_이벤트를_outbox에_기록한다() throws Exception {
 		LocalDateTime now = LocalDateTime.now();
 		Auction auction = auctionWithCurrentPrice(15_000L, now.minusMinutes(1));
 		Bid winningBid = new Bid(AUCTION_ID, BIDDER_ID, 15_000L, now.minusMinutes(2));
-		Artwork artwork = artworkInAuction();
 
 		when(auctionRepository.findByIdForUpdate(AUCTION_ID)).thenReturn(Optional.of(auction));
 		when(bidRepository.findTopBid(eq(AUCTION_ID), any(Limit.class))).thenReturn(Optional.of(winningBid));
-		when(artworkRepository.findById(ARTWORK_ID)).thenReturn(Optional.of(artwork));
 
 		auctionClosingService.closeOne(AUCTION_ID, now);
 
 		assertThat(auction.getStatus()).isEqualTo(AuctionStatus.CLOSED);
-		assertThat(artwork.getStatus()).isEqualTo(ArtworkStatus.SOLD);
 
-		ArgumentCaptor<Settlement> settlementCaptor = ArgumentCaptor.forClass(Settlement.class);
-		verify(settlementRepository).save(settlementCaptor.capture());
-		Settlement settlement = settlementCaptor.getValue();
-		assertThat(settlement.getWinnerId()).isEqualTo(BIDDER_ID);
-		assertThat(settlement.getFinalPrice()).isEqualTo(15_000L);
-		assertThat(settlement.getTotalAmount()).isEqualTo(15_000L + 1_500L + 30_000L); // 낙찰가 + 10% 수수료 + 배송비
+		ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+		verify(outboxEventRepository).save(captor.capture());
+		OutboxEvent event = captor.getValue();
+		assertThat(event.getTopic()).isEqualTo(AuctionClosedMessage.TOPIC);
+		assertThat(event.getMessageKey()).isEqualTo(String.valueOf(AUCTION_ID));
+
+		// 소비자가 읽을 그대로 다시 읽어서 값이 맞는지 확인한다
+		AuctionClosedMessage message = objectMapper.readValue(event.getPayload(), AuctionClosedMessage.class);
+		assertThat(message.auctionId()).isEqualTo(AUCTION_ID);
+		assertThat(message.bidderId()).isEqualTo(BIDDER_ID);
+		assertThat(message.artworkId()).isEqualTo(ARTWORK_ID);
+		assertThat(message.finalPrice()).isEqualTo(15_000L);
+		assertThat(message.closedAt()).isEqualTo(now); // 결제 기한의 기준 시각
 
 		verify(sseRegistry).broadcastAfterCommit(eq(AUCTION_ID), any(AuctionClosingService.AuctionClosedEvent.class));
 	}
 
 	@Test
-	void 입찰이_없으면_경매만_마감되고_정산은_생성하지_않는다() {
+	void 입찰이_없으면_경매만_마감되고_이벤트는_남기지_않는다() {
 		LocalDateTime now = LocalDateTime.now();
 		Auction auction = auctionWithCurrentPrice(10_000L, now.minusMinutes(1));
 
@@ -130,8 +114,7 @@ class AuctionClosingServiceTest {
 		auctionClosingService.closeOne(AUCTION_ID, now);
 
 		assertThat(auction.getStatus()).isEqualTo(AuctionStatus.CLOSED);
-		verify(settlementRepository, never()).save(any());
-		verify(artworkRepository, never()).findById(any());
+		verify(outboxEventRepository, never()).save(any());
 		verify(sseRegistry).broadcastAfterCommit(eq(AUCTION_ID), any(AuctionClosingService.AuctionClosedEvent.class));
 	}
 
@@ -146,6 +129,7 @@ class AuctionClosingServiceTest {
 		auctionClosingService.closeOne(AUCTION_ID, now);
 
 		verify(bidRepository, never()).findTopBid(any(), any());
+		verify(outboxEventRepository, never()).save(any());
 		verify(sseRegistry, never()).broadcastAfterCommit(any(), any());
 	}
 
