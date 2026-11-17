@@ -16,6 +16,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,9 +29,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.artbid.notification.domain.NotificationType;
-import com.artbid.notification.service.NotificationRequestedEvent;
-import org.springframework.context.ApplicationEventPublisher;
-/**
+import com.artbid.notification.service.NotificationRequestedEvent;/**
  * 경매 마감 이벤트로 정산을 만드는 서비스 테스트.
  * 핵심은 같은 이벤트가 여러 번 와도 정산이 하나만 생기는지(멱등성), 다시 열린 경매가 있으면 옛 경매 정산을 만들지 않는지다.
  */
