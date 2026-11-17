@@ -28,7 +28,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
-import com.artbid.auction.event.AuctionClosedMessage;
 import com.artbid.settlement.service.SettlementCreationService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,7 +44,7 @@ import org.springframework.dao.DataIntegrityViolationException;
  *      (서버가 처리 도중 죽었을 때도 다른 서버/재시작한 서버가 이어서 처리한다)
  *   5) 5번 넘게 실패하면 dead-letter Stream으로 옮기고 ACK (무한 재시도 방지)
  *
- *  정산 생성은 다음 PR에서 옮긴다.
+ *  handle(): 마감 이벤트로 정산을 만들고 작품을 판매완료로 바꾼다 (SettlementCreationService).
  */
 
 @Slf4j
