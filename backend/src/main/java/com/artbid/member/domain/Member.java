@@ -22,6 +22,12 @@ public class Member {
 
 	private String name;
 
+	public static final int MAX_NICKNAME_LENGTH = 20;
+
+	// 채팅처럼 다른 사람에게 보이는 곳에 실명 대신 쓰는 이름. 정하기 전에는 null이다. 중복 검사는 하지 않는다.
+	@Column(length = MAX_NICKNAME_LENGTH)
+	private String nickname;
+
 	@Enumerated(EnumType.STRING)
 	private MemberRole role;
 
@@ -33,6 +39,16 @@ public class Member {
 		member.name = name;
 		member.role = role;
 		return member;
+	}
+
+	public void updateNickname(String nickname) {
+		if (nickname != null && !nickname.isBlank()) {
+			this.nickname = nickname.trim();
+		}
+	}
+
+	public boolean hasNickname() {
+		return nickname != null && !nickname.isBlank();
 	}
 
 	public void updateName(String name) {

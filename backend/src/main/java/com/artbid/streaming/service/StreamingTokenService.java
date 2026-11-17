@@ -12,7 +12,7 @@ import com.artbid.streaming.exception.LivestreamNotFoundException;
 import com.artbid.streaming.exception.StageTokenRateLimitExceededException;
 import com.artbid.streaming.repository.LivestreamRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import com.artbid.infra.redis.FixedWindowRateLimiter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.services.ivsrealtime.model.ParticipantToken;
@@ -34,7 +34,7 @@ public class StreamingTokenService {
 	private final AuctionRepository auctionRepository;
 	private final ArtworkRepository artworkRepository;
 	private final IvsStageClient ivsStageClient;
-	private final StringRedisTemplate redisTemplate;
+	private final FixedWindowRateLimiter rateLimiter;
 	private final StageTokenProperties properties;
 
 	@Transactional(readOnly = true)
@@ -73,14 +73,11 @@ public class StreamingTokenService {
 	/**
 	 * IP별로 설정된 기간 동안 발급 가능한 횟수를 센다. 첫 요청에만 TTL을 걸어서,
 	 * 키가 사라지지 않는 한 기간이 늘어지지 않게 한다(고정 윈도우 방식).
+	 * 증가와 TTL 설정은 FixedWindowRateLimiter가 한 번에 처리한다.
 	 */
 	private void enforceSubscribeRateLimit(String clientIp) {
 		String key = RATE_LIMIT_KEY_PREFIX + clientIp;
-		Long count = redisTemplate.opsForValue().increment(key);
-		if (count != null && count == 1L) {
-			redisTemplate.expire(key, properties.getSubscribeRateLimitWindow());
-		}
-		if (count != null && count > properties.getSubscribeRateLimit()) {
+		if (rateLimiter.increment(key, properties.getSubscribeRateLimitWindow()) > properties.getSubscribeRateLimit()) {
 			throw new StageTokenRateLimitExceededException(clientIp);
 		}
 	}
