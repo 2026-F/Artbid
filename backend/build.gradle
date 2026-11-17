@@ -46,6 +46,9 @@ dependencies {
 	annotationProcessor 'org.projectlombok:lombok'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	// Gradle 9부터 테스트 실행에 필요한 JUnit Platform launcher를 자동으로 넣어주지 않는다.
+	// 그동안은 spring-kafka-test가 이걸 같이 끌어와서 문제가 안 보였는데, Kafka를 걷어내면서 빠졌다. 버전은 Spring Boot가 맞춰준다.
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
 	implementation 'org.springframework.security:spring-security-crypto'
 	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
