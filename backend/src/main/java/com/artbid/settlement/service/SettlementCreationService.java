@@ -10,7 +10,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.artbid.notification.domain.NotificationType;
+import com.artbid.notification.service.NotificationRequestedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.format.DateTimeFormatter;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -32,10 +36,12 @@ public class SettlementCreationService {
     private static final double PREMIUM_RATE = 0.10;      // 낙찰가의 10%를 수수료로
     private static final long SHIPPING_FEE = 30_000L;
     private static final long PAYMENT_DEADLINE_DAYS = 3;
+    private static final DateTimeFormatter DEADLINE_FORMAT = DateTimeFormatter.ofPattern("M월 d일 HH:mm");
 
     private final SettlementRepository settlementRepository;
     private final ArtworkRepository artworkRepository;
     private final AuctionRepository auctionRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 정산을 새로 만들었으면 true, 이미 있거나 만들 필요가 없으면 false. */
     @Transactional
@@ -68,6 +74,10 @@ public class SettlementCreationService {
                 .orElseThrow(() -> new IllegalArgumentException("작품을 찾을 수 없습니다: " + message.artworkId()));
         artwork.markSold();
 
+        // 낙찰자에게 알림. 이 트랜잭션이 커밋된 뒤에 만들어진다(NotificationEventListener).
+        // 정산을 새로 만들었을 때만 여기까지 오므로, 이벤트가 중복으로 와도 알림은 한 번만 간다.
+        notifyWinner(message, artwork, settlement);
+
         log.info("[정산 생성] auctionId={} settlementId={} 생성", auctionId, settlement.getId());
         return true;
     }
@@ -80,5 +90,16 @@ public class SettlementCreationService {
     private boolean isSuperseded(Long artworkId, Long auctionId) {
         return auctionRepository.findByArtworkIdIn(List.of(artworkId)).stream()
                 .anyMatch(other -> other.getId() > auctionId);
+    }
+
+    private void notifyWinner(AuctionClosedMessage message, Artwork artwork, Settlement settlement) {
+        eventPublisher.publishEvent(new NotificationRequestedEvent(
+                message.bidderId(),
+                NotificationType.AUCTION_WON,
+                "낙찰되었습니다",
+                "'%s' 작품을 %,d원에 낙찰받았어요. %s까지 결제해 주세요."
+                        .formatted(artwork.getTitle(), message.finalPrice(),
+                                settlement.getPaymentDeadlineAt().format(DEADLINE_FORMAT)),
+                "/mypage"));
     }
 }
