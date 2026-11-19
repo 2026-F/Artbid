@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+@Table(indexes = @Index(name = "idx_artwork_media_artwork", columnList = "artworkId, sortOrder, id"))
 @Entity
 @Getter
 @NoArgsConstructor
