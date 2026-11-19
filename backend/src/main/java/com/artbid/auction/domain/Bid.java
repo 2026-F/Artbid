@@ -6,6 +6,10 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/**
+ * 입찰 내역 조회(GET /api/auctions/{id}/bids)는 "이 경매의 입찰을 최신순으로"를 찾는다.
+ */
+@Table(indexes = @Index(name = "idx_bid_auction_created", columnList = "auctionId, createdAt DESC"))
 @Entity
 @Getter
 @NoArgsConstructor
