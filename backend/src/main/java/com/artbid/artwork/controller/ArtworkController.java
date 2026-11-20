@@ -77,6 +77,29 @@ public class ArtworkController {
 		return artworkService.getArtwork(artworkId);
 	}
 
+	@GetMapping("/mine")
+	public ArtworkPageResponse getMyArtworks(@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "20") int size, Principal principal, HttpServletRequest request) {
+		Long memberId = requireSeller(principal, request);
+		PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+				toSort("latest"));
+		return artworkService.getMyArtworks(memberId, pageable);
+	}
+
+	@GetMapping("/mine/{artworkId}")
+	public ArtworkDetailResponse getMyArtwork(@PathVariable Long artworkId, Principal principal,
+			HttpServletRequest request) {
+		return artworkService.getMyArtwork(artworkId, requireSeller(principal, request));
+	}
+
+	private Long requireSeller(Principal principal, HttpServletRequest request) {
+		Long memberId = requireMemberId(principal);
+		if (role(request) != MemberRole.CONSIGNOR) {
+			throw new ArtworkForbiddenException("판매자(CONSIGNOR)만 이용할 수 있습니다.");
+		}
+		return memberId;
+	}
+
 	@PatchMapping("/{artworkId}")
 	public ArtworkDetailResponse update(@PathVariable Long artworkId, @Valid @RequestBody ArtworkUpdateRequest request,
 			Principal principal, HttpServletRequest httpRequest) {
