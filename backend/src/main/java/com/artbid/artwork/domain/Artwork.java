@@ -11,10 +11,11 @@ import java.time.LocalDateTime;
 
 /**
  * 위탁 작품.
- * 등록 직후에는 심사 대기(PENDING_REVIEW) 상태이며, 상태 전환(승인/반려)은 심사 로직(#36)에서 담당한다.
- * 기존 데이터가 있는 테이블에 컬럼이 추가되므로(ddl-auto: update) 새 컬럼은 DB에서 nullable로 두고
- * 필수 여부는 도메인/요청 DTO에서 검증한다.
+ * 가격순 정렬 인덱스: 작품 목록의 가격순(priceAsc, priceDesc)에 쓴다.
+ * 정렬이 start_price ASC, id DESC / start_price DESC, id DESC 두 가지라서 (startPrice, id)로는 하나만 맞는다.
+ * startPrice 하나만 걸면 가격 순서는 인덱스가 맞추고 같은 가격끼리만 id로 정렬한다(PostgreSQL Incremental Sort).
  */
+@Table(indexes = @Index(name = "idx_artwork_start_price", columnList = "startPrice"))
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
