@@ -63,4 +63,13 @@ class TossPaymentClientTest {
         assertThatThrownBy(() -> client.confirm("pk_test_x", "payment_1", 10_000L))
                 .isInstanceOf(PaymentGatewayUnavailableException.class);
     }
+
+    @Test
+    void 승인_요청에서_토스_5xx는_거절이_아니라_결과_불명이다() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/confirm"))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+        assertThatThrownBy(() -> client.confirm("pk_test_x", "payment_1", 10_000L))
+                .isInstanceOf(PaymentGatewayUnavailableException.class);
+    }
 }

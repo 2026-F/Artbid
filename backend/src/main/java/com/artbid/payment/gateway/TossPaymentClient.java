@@ -40,7 +40,12 @@ public class TossPaymentClient {
             return new PaymentGateway.Result(true, transactionId, null);
 
         } catch (RestClientResponseException e) {
-            // 4xx: 토스가 승인을 거절함 (한도 초과, 유효하지 않은 카드 등)
+            // 5xx는 토스 내부 오류라 승인이 됐는지 알 수 없다.
+            // 거절로 처리하면 실제로는 돈이 빠져나간 결제를 실패로 만들 수 있으므로 결과 불명으로 넘긴다.
+            if (e.getStatusCode().is5xxServerError()) {
+                throw new PaymentGatewayUnavailableException("토스페이먼츠 서버 오류: " + e.getStatusCode().value());
+            }
+            // 4xx: 토스가 승인을 명확히 거절함 (한도 초과, 유효하지 않은 카드 등)
             return new PaymentGateway.Result(false, null, extractErrorMessage(e));
 
         } catch (Exception e) {
