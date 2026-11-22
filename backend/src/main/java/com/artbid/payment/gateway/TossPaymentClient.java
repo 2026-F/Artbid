@@ -13,6 +13,7 @@ import java.util.Map;
 
 import lombok.extern.slf4j.Slf4j;
 import java.util.Optional;
+import java.util.Set;
 
 @Slf4j
 @Component
@@ -20,6 +21,7 @@ public class TossPaymentClient {
 
     private static final String CONFIRM_URL = "https://api.tosspayments.com/v1/payments/confirm";
     private static final String LOOKUP_URL = "https://api.tosspayments.com/v1/payments/orders/{orderId}";
+    private static final Set<String> CONFIG_ERROR_CODES = Set.of("UNAUTHORIZED_KEY", "NOT_FOUND_MERCHANT");
 
     private final RestClient restClient;
     private final String authorizationHeader;
@@ -74,11 +76,18 @@ public class TossPaymentClient {
                     .retrieve()
                     .body(JsonNode.class);
         } catch (RestClientResponseException e) {
+            String code = extractErrorCode(e);
             // 결제창에서 인증 전에 나가면 토스에는 이 주문번호의 결제가 아예 없다.
-            if (e.getStatusCode().value() == 404 && "NOT_FOUND_PAYMENT".equals(extractErrorCode(e))) {
+            if (e.getStatusCode().value() == 404 && "NOT_FOUND_PAYMENT".equals(code)) {
                 return Optional.of(new PaymentGateway.Result(false, null, "토스 결제 내역 없음 (결제창 이탈)"));
             }
-            log.warn("[결제 복구] 토스 조회 실패, 다음 회차에 재시도 (orderId={}, status={})", orderId, e.getStatusCode().value());
+            // 키나 상점 설정 문제는 기다려도 풀리지 않는다. 사람이 바로 알 수 있게 ERROR로 남긴다.
+            if (CONFIG_ERROR_CODES.contains(code)) {
+                log.error("[결제 복구] 토스 키·상점 설정 오류, 결제를 확정할 수 없음 (orderId={}, code={})", orderId, code);
+                return Optional.empty();
+            }
+            log.warn("[결제 복구] 토스 조회 실패, 다음 회차에 재시도 (orderId={}, status={}, code={})",
+                    orderId, e.getStatusCode().value(), code);
             return Optional.empty();
         } catch (Exception e) {
             log.warn("[결제 복구] 토스 조회 응답 없음, 다음 회차에 재시도 (orderId={}): {}", orderId, e.getMessage());
