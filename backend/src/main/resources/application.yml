@@ -87,6 +87,10 @@ app:
   payment:
     toss:
       secret-key: ${TOSS_SECRET_KEY:test_sk_dummy_key_for_local_dev_only}
+    recovery:
+      enabled: true
+      interval-ms: 60000        # 1분마다 실행
+      stale-after-minutes: 15   # 요청 후 15분이 지난 결과 불명 결제만 확인
 
 media:
   storage:
