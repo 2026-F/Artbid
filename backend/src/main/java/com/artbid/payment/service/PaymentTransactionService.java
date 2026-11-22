@@ -56,6 +56,33 @@ public class PaymentTransactionService {
 		if (!settlementId.equals(payment.getSettlementId())) {
 			throw new PaymentException(CONFLICT, "PAYMENT_SETTLEMENT_MISMATCH", "결제와 정산이 일치하지 않습니다.");
 		}
+		apply(settlement, payment, result);
+		return PaymentResponse.from(payment);
+	}
+
+	/**
+	 * 복구 스케줄러용. 결과 불명(REQUESTED) 결제를 PG 조회 결과로 확정한다. 확정했으면 true.
+	 *
+	 * 정산 행을 먼저 잠근 뒤 결제를 읽는다. 같은 순간 승인 요청(complete)이 진행 중이었다면
+	 * 그쪽이 끝날 때까지 기다렸다가 결과를 보고, 이미 확정됐으면 건드리지 않는다.
+	 * complete()도 정산 → 결제 순서로 잠그므로 잠금 순서가 같아 교착 상태가 생기지 않는다.
+	 */
+	@Transactional
+	public boolean resolveUnknown(Long paymentId, PaymentGateway.Result result) {
+		Long settlementId = paymentRepository.findSettlementIdById(paymentId)
+				.orElseThrow(() -> new PaymentException(NOT_FOUND, "NOT_FOUND", "결제 내역이 없습니다."));
+		Settlement settlement = settlementRepository.findByIdForUpdate(settlementId)
+				.orElseThrow(() -> new PaymentException(NOT_FOUND, "NOT_FOUND", "정산 내역이 없습니다."));
+		Payment payment = findPayment(paymentId); // 잠금을 잡은 뒤 처음 읽으므로 최신 상태다
+		if (payment.getStatus() != PaymentStatus.REQUESTED) {
+			return false; // 그사이 승인 요청이 먼저 확정함
+		}
+		apply(settlement, payment, result);
+		return true;
+	}
+
+	// 승인이면 결제와 정산을 완료로, 거절이면 결제만 실패로 바꾼다. (정산은 재결제할 수 있게 PENDING 유지)
+	private void apply(Settlement settlement, Payment payment, PaymentGateway.Result result) {
 		if (result.approved()) {
 			boolean firstPaid = settlement.getPaymentStatus() != com.artbid.settlement.domain.PaymentStatus.PAID;
 			payment.markPaid(result.transactionId(), databaseTime());
@@ -65,9 +92,7 @@ public class PaymentTransactionService {
 			}
 		} else {
 			payment.markFailed(result.failureReason());
-			// 개별 시도만 실패 처리한다. Settlement는 재시도 가능한 PENDING을 유지한다.
 		}
-		return PaymentResponse.from(payment);
 	}
 
 	@Transactional(readOnly = true)

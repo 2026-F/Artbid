@@ -63,4 +63,77 @@ class TossPaymentClientTest {
         assertThatThrownBy(() -> client.confirm("pk_test_x", "payment_1", 10_000L))
                 .isInstanceOf(PaymentGatewayUnavailableException.class);
     }
+
+    // ── 결제 조회 (복구용) ──
+
+    @Test
+    void 조회_결과가_DONE이고_금액이_같으면_승인으로_확정한다() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/orders/payment_2"))
+                .andRespond(withSuccess("{\"status\":\"DONE\",\"paymentKey\":\"pk_done\",\"totalAmount\":42100}",
+                        MediaType.APPLICATION_JSON));
+
+        var result = client.lookup("payment_2", 42_100L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().approved()).isTrue();
+        assertThat(result.get().transactionId()).isEqualTo("pk_done");
+    }
+
+    @Test
+    void DONE이어도_금액이_다르면_확정하지_않는다() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/orders/payment_2"))
+                .andRespond(withSuccess("{\"status\":\"DONE\",\"paymentKey\":\"pk_done\",\"totalAmount\":1000}",
+                        MediaType.APPLICATION_JSON));
+
+        assertThat(client.lookup("payment_2", 42_100L)).isEmpty();
+    }
+
+    @Test
+    void 결제_내역이_없으면_미승인으로_확정한다() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/orders/payment_2"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\":\"NOT_FOUND_PAYMENT\",\"message\":\"존재하지 않는 결제 정보 입니다.\"}"));
+
+        var result = client.lookup("payment_2", 42_100L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().approved()).isFalse();
+    }
+
+    @Test
+    void 만료나_중단이면_미승인으로_확정한다() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/orders/payment_2"))
+                .andRespond(withSuccess("{\"status\":\"EXPIRED\"}", MediaType.APPLICATION_JSON));
+
+        var result = client.lookup("payment_2", 42_100L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().approved()).isFalse();
+    }
+
+    @Test
+    void 진행_중이면_아직_모름으로_둔다() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/orders/payment_2"))
+                .andRespond(withSuccess("{\"status\":\"IN_PROGRESS\"}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.lookup("payment_2", 42_100L)).isEmpty();
+    }
+
+    @Test
+    void 키_오류나_토스_장애는_아직_모름으로_둔다() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/orders/payment_2"))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\":\"UNAUTHORIZED_KEY\",\"message\":\"인증되지 않은 시크릿 키\"}"));
+
+        assertThat(client.lookup("payment_2", 42_100L)).isEmpty();
+    }
+
+    @Test
+    void 승인_요청에서_토스_5xx는_거절이_아니라_결과_불명이다() {
+        server.expect(requestTo("https://api.tosspayments.com/v1/payments/confirm"))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+        assertThatThrownBy(() -> client.confirm("pk_test_x", "payment_1", 10_000L))
+                .isInstanceOf(PaymentGatewayUnavailableException.class);
+    }
 }
