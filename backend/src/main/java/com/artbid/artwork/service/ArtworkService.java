@@ -100,10 +100,8 @@ public class ArtworkService {
 	}
 
 	public ArtworkDetailResponse getMyArtwork(Long artworkId, Long memberId) {
-		Artwork artwork = findArtwork(artworkId);
-		if (!Objects.equals(artwork.getConsignorId(), memberId)) {
-			throw new ArtworkForbiddenException("본인 작품만 조회할 수 있습니다.");
-		}
+		Artwork artwork = artworkRepository.findByIdAndConsignorId(artworkId, memberId)
+				.orElseThrow(() -> new ArtworkNotFoundException(artworkId));
 		return toDetail(artwork);
 	}
 

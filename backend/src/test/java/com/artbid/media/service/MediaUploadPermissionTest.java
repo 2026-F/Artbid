@@ -7,8 +7,11 @@ import com.artbid.infra.storage.S3PresignedUrlProvider;
 import com.artbid.media.domain.ArtworkMedia;
 import com.artbid.media.exception.MediaAccessDeniedException;
 import com.artbid.media.repository.ArtworkMediaRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -23,20 +26,25 @@ import static org.mockito.Mockito.*;
 class MediaUploadPermissionTest {
 
 	private ArtworkMediaRepository mediaRepository;
+	private ArtworkRepository artworks;
 	private S3PresignedUrlProvider urlProvider;
 	private MediaService service;
 
 	@BeforeEach
 	void setUp() {
 		mediaRepository = mock(ArtworkMediaRepository.class);
-		ArtworkRepository artworks = mock(ArtworkRepository.class);
+		artworks = mock(ArtworkRepository.class);
+		EntityManager entityManager = mock(EntityManager.class);
 		urlProvider = mock(S3PresignedUrlProvider.class);
-		service = new MediaService(mediaRepository, artworks, urlProvider, mock(TranscodeService.class));
+		service = new MediaService(mediaRepository, artworks, urlProvider, mock(TranscodeService.class),
+				mock(ApplicationEventPublisher.class), entityManager);
+		when(entityManager.createNativeQuery("SET LOCAL lock_timeout = '3000ms'")).thenReturn(mock(Query.class));
 
 		Artwork artwork = Artwork.builder().consignorId(1L).artistId(2L).title("무제")
 				.category(ArtworkCategory.PAINTING).startPrice(100_000L).build();
 		ReflectionTestUtils.setField(artwork, "id", 10L);
 		when(artworks.findById(10L)).thenReturn(Optional.of(artwork));
+		when(artworks.findConsignorIdById(10L)).thenReturn(Optional.of(1L));
 		when(artworks.findByIdForUpdate(10L)).thenReturn(Optional.of(artwork));
 		when(urlProvider.issueUploadUrl(anyString(), anyString())).thenReturn("https://upload.example");
 		when(urlProvider.issuePublicUrl(anyString())).thenReturn("https://media.example/photo.jpg");
@@ -67,6 +75,7 @@ class MediaUploadPermissionTest {
 	void 다른_회원은_업로드_완료를_등록할_수_없다() {
 		assertThatThrownBy(() -> service.completeUpload(10L, 5L, false, "artworks/10/media/a.jpg", "PHOTO"))
 				.isInstanceOf(MediaAccessDeniedException.class);
+		verify(artworks, never()).findByIdForUpdate(any());
 		verify(mediaRepository, never()).save(any());
 	}
 

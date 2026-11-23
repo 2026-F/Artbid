@@ -1,7 +1,6 @@
 package com.artbid.artwork.controller;
 
 import com.artbid.artwork.dto.ArtworkPageResponse;
-import com.artbid.artwork.exception.ArtworkForbiddenException;
 import com.artbid.artwork.exception.ArtworkNotFoundException;
 import com.artbid.artwork.service.ArtworkService;
 import com.artbid.common.exception.GlobalExceptionHandler;
@@ -90,11 +89,11 @@ class SellerArtworkControllerTest {
 	}
 
 	@Test
-	void 타인_작품은_403_없는_작품은_404를_반환한다() throws Exception {
-		when(service.getMyArtwork(42L, 7L)).thenThrow(new ArtworkForbiddenException("본인 작품만 조회할 수 있습니다."));
+	void 타인_작품과_없는_작품은_둘_다_404를_반환한다() throws Exception {
+		when(service.getMyArtwork(42L, 7L)).thenThrow(new ArtworkNotFoundException(42L));
 		when(service.getMyArtwork(99L, 7L)).thenThrow(new ArtworkNotFoundException(99L));
 		mvc.perform(get("/api/artworks/mine/42").with(loginAs(MemberRole.CONSIGNOR)))
-				.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ARTWORK_FORBIDDEN"));
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ARTWORK_NOT_FOUND"));
 		mvc.perform(get("/api/artworks/mine/99").with(loginAs(MemberRole.CONSIGNOR)))
 				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ARTWORK_NOT_FOUND"));
 	}

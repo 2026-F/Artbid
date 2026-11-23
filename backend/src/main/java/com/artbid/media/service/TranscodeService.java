@@ -11,10 +11,14 @@ import com.artbid.media.repository.ArtworkMediaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.core.exception.SdkClientException;
+import software.amazon.awssdk.core.exception.SdkServiceException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,6 +32,9 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class TranscodeService {
 
+	// AWS 작업 이력 보존 범위 내에서만 자동으로 재요청한다.
+	private static final Duration MAX_AUTOMATIC_RECOVERY_AGE = Duration.ofDays(80);
+
 	private final MediaConvertClient mediaConvertClient;
 	private final MediaConvertProperties mediaConvertProperties;
 	private final ArtworkMediaRepository artworkMediaRepository;
@@ -35,9 +42,13 @@ public class TranscodeService {
 	private final S3StorageProperties s3StorageProperties;
 	private final S3Client s3Client;
 
+	boolean isEnabled() {
+		return mediaConvertClient.isEnabled();
+	}
+
 	/**
 	 * 트랜스코딩을 요청하고 결과에 맞게 미디어 상태를 바꾼다. (저장은 호출하는 쪽에서)
-	 * AWS 호출이 실패해도 업로드 완료 처리 자체는 실패시키지 않고 FAILED로 남긴다.
+	 * 명확한 접수 실패는 FAILED로 남기고, 결과가 불명확하면 호출자가 대기 상태를 유지한다.
 	 */
 	public void start(ArtworkMedia media, String sourceObjectKey) {
 		try {
@@ -48,9 +59,27 @@ public class TranscodeService {
 				media.skipTranscode();
 			}
 		} catch (RuntimeException e) {
+			if (e instanceof SdkClientException || e instanceof SdkServiceException aws
+					&& (aws.statusCode() >= 500 || aws.statusCode() == 408 || aws.isThrottlingException())) {
+				throw e;
+			}
 			log.warn("[Transcode] {} 트랜스코딩 요청 실패 — 원본으로 대체합니다", sourceObjectKey, e);
 			media.failTranscode("트랜스코딩 요청 실패: " + e.getMessage());
 		}
+	}
+
+	void recoverSubmission(ArtworkMedia media) {
+		Instant firstAttemptAt = media.getTranscodeFirstAttemptAt();
+		String sourceObjectKey = media.getObjectKey();
+		Optional<String> existingJob = mediaConvertClient.findSubmittedJob(sourceObjectKey, firstAttemptAt);
+		if (existingJob.isPresent()) {
+			media.startTranscode(existingJob.get());
+			return;
+		}
+		if (firstAttemptAt.isBefore(Instant.now().minus(MAX_AUTOMATIC_RECOVERY_AGE))) {
+			throw new IllegalStateException("MediaConvert 작업 이력의 자동 복구 범위를 넘었습니다.");
+		}
+		start(media, sourceObjectKey);
 	}
 
 	/**
@@ -59,7 +88,7 @@ public class TranscodeService {
 	 */
 	public void refreshProcessingJobs() {
 		List<ArtworkMedia> processing =
-				artworkMediaRepository.findTop50ByTranscodeStatusOrderByIdAsc(TranscodeStatus.PROCESSING);
+				artworkMediaRepository.findTop50ByTranscodeStatusAndTranscodeJobIdIsNotNullOrderByIdAsc(TranscodeStatus.PROCESSING);
 
 		for (ArtworkMedia media : processing) {
 			try {

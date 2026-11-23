@@ -4,7 +4,6 @@ import com.artbid.artist.repository.ArtistRepository;
 import com.artbid.artwork.domain.Artwork;
 import com.artbid.artwork.domain.ArtworkCategory;
 import com.artbid.artwork.dto.ArtworkPageResponse;
-import com.artbid.artwork.exception.ArtworkForbiddenException;
 import com.artbid.artwork.exception.ArtworkNotFoundException;
 import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.repository.AuctionRepository;
@@ -59,7 +58,7 @@ class SellerArtworkServiceTest {
 
 	@Test
 	void 본인_비공개_작품은_기존_상세_형식으로_조회한다() {
-		when(artworks.findById(42L)).thenReturn(Optional.of(artwork()));
+		when(artworks.findByIdAndConsignorId(42L, 7L)).thenReturn(Optional.of(artwork()));
 		when(media.findByArtworkIdOrderBySortOrder(42L)).thenReturn(List.of());
 		when(auctions.findByArtworkIdIn(any())).thenReturn(List.of());
 		assertThat(service.getMyArtwork(42L, 7L).consignorId()).isEqualTo(7L);
@@ -67,14 +66,14 @@ class SellerArtworkServiceTest {
 
 	@Test
 	void 타인_작품은_상세_미디어를_읽기_전에_거절한다() {
-		when(artworks.findById(42L)).thenReturn(Optional.of(artwork()));
-		assertThatThrownBy(() -> service.getMyArtwork(42L, 8L)).isInstanceOf(ArtworkForbiddenException.class);
+		when(artworks.findByIdAndConsignorId(42L, 8L)).thenReturn(Optional.empty());
+		assertThatThrownBy(() -> service.getMyArtwork(42L, 8L)).isInstanceOf(ArtworkNotFoundException.class);
 		verifyNoInteractions(artists, media, auctions);
 	}
 
 	@Test
 	void 없는_작품은_찾을_수_없음_예외를_반환한다() {
-		when(artworks.findById(99L)).thenReturn(Optional.empty());
+		when(artworks.findByIdAndConsignorId(99L, 7L)).thenReturn(Optional.empty());
 		assertThatThrownBy(() -> service.getMyArtwork(99L, 7L)).isInstanceOf(ArtworkNotFoundException.class);
 	}
 }

@@ -3,6 +3,7 @@ package com.artbid.common.exception;
 import com.artbid.media.exception.MediaAccessDeniedException;
 import com.artbid.media.exception.MediaAuthRequiredException;
 import com.artbid.media.exception.MediaTypeConflictException;
+import com.artbid.media.exception.MediaUploadTemporarilyUnavailableException;
 import com.artbid.artwork.exception.ArtworkNotEditableException;
 import com.artbid.artwork.exception.ArtworkForbiddenException;
 import org.springframework.http.HttpStatus;
@@ -50,6 +51,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MediaAccessDeniedException.class)
     public ResponseEntity<String> handleMediaAccessDenied(MediaAccessDeniedException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
+    }
+
+    @ExceptionHandler(MediaUploadTemporarilyUnavailableException.class)
+    public ResponseEntity<String> handleMediaUploadTemporarilyUnavailable(MediaUploadTemporarilyUnavailableException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(e.getMessage());
     }
 
     @ExceptionHandler(MediaTypeConflictException.class)

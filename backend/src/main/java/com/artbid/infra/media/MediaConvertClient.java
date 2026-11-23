@@ -5,22 +5,31 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.mediaconvert.model.CreateJobRequest;
 import software.amazon.awssdk.services.mediaconvert.model.GetJobRequest;
 import software.amazon.awssdk.services.mediaconvert.model.Input;
 import software.amazon.awssdk.services.mediaconvert.model.Job;
 import software.amazon.awssdk.services.mediaconvert.model.JobSettings;
+import software.amazon.awssdk.services.mediaconvert.model.ListJobsRequest;
 import software.amazon.awssdk.services.mediaconvert.model.NotFoundException;
+import software.amazon.awssdk.services.mediaconvert.model.Order;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class MediaConvertClient {
+
+	private static final int MAX_RECOVERY_PAGES = 5;
 
 	private final MediaConvertProperties properties;
 	private final S3StorageProperties s3StorageProperties;
@@ -50,11 +59,13 @@ public class MediaConvertClient {
 		String roleArn = requireConfigured(properties.getRoleArn(), "media.mediaconvert.role-arn");
 		String jobTemplateName = requireConfigured(properties.getJobTemplateName(),
 				"media.mediaconvert.job-template-name");
-		String inputUri = "s3://%s/%s".formatted(s3StorageProperties.getBucket(), sourceObjectKey);
+		String inputUri = inputUri(sourceObjectKey);
 
 		CreateJobRequest.Builder requestBuilder = CreateJobRequest.builder()
 				.role(roleArn)
 				.jobTemplate(jobTemplateName)
+				.clientRequestToken(requestToken(inputUri))
+				.overrideConfiguration(config -> config.apiCallTimeout(Duration.ofSeconds(20)))
 				// 콘솔/이벤트에서 어떤 원본의 job인지 바로 알 수 있도록 태깅
 				.userMetadata(Map.of("objectKey", sourceObjectKey))
 				.settings(JobSettings.builder()
@@ -65,9 +76,51 @@ public class MediaConvertClient {
 			requestBuilder.queue(properties.getQueueArn());
 		}
 
-		String jobId = client().createJob(requestBuilder.build()).job().id();
+		Job job = client().createJob(requestBuilder.build()).job();
+		if (job == null || job.id() == null || job.id().isBlank()) {
+			throw SdkClientException.create("MediaConvert 접수 응답에 작업 ID가 없습니다.");
+		}
+		String jobId = job.id();
 		log.info("[MediaConvert] {} 트랜스코딩 job 요청 완료 (jobId={})", sourceObjectKey, jobId);
 		return Optional.of(jobId);
+	}
+
+	/**
+	 * 작업 이력에서 같은 토큰을 찾는다. 첫 요청 시각까지 조회한 경우에만 빈 결과를 반환한다.
+	 */
+	public Optional<String> findSubmittedJob(String sourceObjectKey, Instant firstAttemptAt) {
+		String token = requestToken(inputUri(sourceObjectKey));
+		Instant cutoff = firstAttemptAt.minusSeconds(60); // DB 서버와 AWS의 시계 차이를 고려한다.
+		String nextToken = null;
+		for (int page = 0; page < MAX_RECOVERY_PAGES; page++) {
+			var response = client().listJobs(ListJobsRequest.builder()
+					.order(Order.DESCENDING)
+					.maxResults(20)
+					.nextToken(nextToken)
+					.overrideConfiguration(config -> config.apiCallTimeout(Duration.ofSeconds(4)))
+					.build());
+			for (Job job : response.jobs()) {
+				if (token.equals(job.clientRequestToken())) {
+					return Optional.of(job.id());
+				}
+				if (job.createdAt() != null && job.createdAt().isBefore(cutoff)) {
+					return Optional.empty();
+				}
+			}
+			nextToken = response.nextToken();
+			if (nextToken == null || nextToken.isBlank()) {
+				return Optional.empty();
+			}
+		}
+		throw new IllegalStateException("MediaConvert 작업 이력이 첫 요청 시각까지 확인되지 않았습니다.");
+	}
+
+	private String inputUri(String sourceObjectKey) {
+		return "s3://%s/%s".formatted(s3StorageProperties.getBucket(), sourceObjectKey);
+	}
+
+	private String requestToken(String inputUri) {
+		return UUID.nameUUIDFromBytes(inputUri.getBytes(StandardCharsets.UTF_8)).toString();
 	}
 
 	/**

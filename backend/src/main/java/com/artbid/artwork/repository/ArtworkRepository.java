@@ -13,7 +13,12 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 
 public interface ArtworkRepository extends JpaRepository<Artwork, Long>, JpaSpecificationExecutor<Artwork> {
+	Optional<Artwork> findByIdAndConsignorId(Long id, Long consignorId);
+
 	Page<Artwork> findByConsignorId(Long consignorId, Pageable pageable);
+
+	@Query("select artwork.consignorId from Artwork artwork where artwork.id = :id")
+	Optional<Long> findConsignorIdById(@Param("id") Long id);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select artwork from Artwork artwork where artwork.id = :id")
