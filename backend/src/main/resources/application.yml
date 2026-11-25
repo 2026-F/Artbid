@@ -87,6 +87,10 @@ app:
     reconnect:
       timeout: 2m        # 끊긴 뒤 이 시간 안에 재연결 못 하면 자동으로 방송 종료
       sweep-interval-ms: 30000
+  bid:
+    rate-limit-enabled: true
+    rate-limit: 5            # 회원 한 명이 rate-limit-window 동안 보낼 수 있는 입찰(제출, 취소 합산) 수. 임시값, k6로 조정
+    rate-limit-window: 1s
   chat:
     rate-limit: 5          # 회원 한 명이 경매 하나에서 rate-limit-window 동안 보낼 수 있는 채팅 수
     rate-limit-window: 10s

@@ -1,5 +1,6 @@
 package com.artbid.auction.controller;
 
+import com.artbid.auction.service.BidRateLimiter;
 import com.artbid.auction.service.BidService;
 import com.artbid.common.exception.BidAuthRequiredException;
 import jakarta.validation.Valid;
@@ -16,16 +17,21 @@ import java.util.List;
 public class BidController {
 
 	private final BidService bidService;
+	private final BidRateLimiter bidRateLimiter;
 
 	@PostMapping("/{auctionId}/bids")
 	public BidService.BidResult submitBid(@PathVariable Long auctionId, @Valid @RequestBody BidRequest request,
 			Principal principal) {
-		return bidService.submitBid(auctionId, memberId(principal), request.price());
+		Long memberId = memberId(principal);
+		bidRateLimiter.check(memberId); // 회원별 입찰 횟수 제한. 넘으면 429
+		return bidService.submitBid(auctionId, memberId, request.price());
 	}
 
 	@DeleteMapping("/{auctionId}/bids")
 	public BidService.BidResult cancelBid(@PathVariable Long auctionId, Principal principal) {
-		return bidService.cancelBid(auctionId, memberId(principal));
+		Long memberId = memberId(principal);
+		bidRateLimiter.check(memberId);
+		return bidService.cancelBid(auctionId, memberId);
 	}
 
 	@GetMapping("/{auctionId}/bids")
