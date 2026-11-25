@@ -1,7 +1,7 @@
 # 여러 작품을 연달아 진행하는 라이브 편성
 
 - 작성일: 2026-11-25
-- 관련 이슈 / PR: 미정. 이전 작업 [2026-11-13-live-chat-portrait.md](2026-11-13-live-chat-portrait.md) (BE #125, FE #77)
+- 관련 이슈 / PR: [BE PR #153](https://github.com/2026-F/Artbid/pull/153) (1단계). 이전 작업 [2026-11-13-live-chat-portrait.md](2026-11-13-live-chat-portrait.md) (BE #125, FE #77)
 
 ## 목적
 
