@@ -1,0 +1,116 @@
+# ArtBid 리버스 프록시 설정
+# nginx 공식 이미지가 시작할 때 ${ARTBID_BACKEND} 자리에 환경변수 값을 넣어
+# /etc/nginx/conf.d/default.conf로 만든다. 백엔드 주소는 docker-compose.yml에서 정한다.
+#
+# IP 기준 제한은 "한 IP에서 대놓고 쏟아지는 요청"만 막는 느슨한 1차 방어선이다.
+# 기숙사·학교는 수백 명이 IP 하나를 공유하므로, 매크로 차단은 백엔드의 회원 기준 제한에서 한다.
+# 아래 숫자는 임시값이다. k6로 "같은 IP의 정상 사용자 수백 명" 시나리오를 돌려 조정한다.
+
+# ---1.제한에서 뺄 IP (k6 부하테스트를 보내는 서버 등)----
+# geo:요청을 보낸 IP를 보고 값을 정해주는 규칙
+# $limited값이 1이면 검사 대상, 0이면 검사 안함
+geo $limited {
+    default        1; # 기본: 모든 요청은 검사 대상
+    127.0.0.1      0; # 내 컴퓨터 120.0.0.1에서 온 요청은 검사 안함
+    # 203.0.113.10 0;   # 나중에 k6 부하테스트 서버 IP를 여기에 적기!
+}
+
+
+#---2.요청을 셀 때 쓸 기준 값 정하기---
+
+#map: 앞의 값($limited)에 따라 새 값($limit_key)을 규칙함
+# 검사 대상이면 기준값을 요청 IP를 키로 쓰고, 예외면 기준값을 빈 값
+#ngix는 빈값인 요청은 세지 않음
+map $limited $limit_key {
+    0 "";
+    1 $binary_remote_addr; #IP를 문자열 대신 4바이트로 저장해 메모리를 아낀다
+}
+
+#---3. 요청 수를 기록할 저장 공간 만들기
+#zone= 이름 : 크기 -> 아이피 별 카운트를 담아둘 공유 메모리 10m 이면, 16만 개를 기억 할 수 있다
+#여기서는 공간과 기준 속도만 만들고, 실제 적용은 아래 server/location에서 한다
+
+limit_conn_zone $limit_key zone=perip_conn:10m;             # IP별 동시 연결 수
+limit_req_zone  $limit_key zone=perip_api:10m rate=100r/s;  # 일반 API: IP당 초당 100건
+limit_req_zone  $limit_key zone=perip_bid:10m rate=50r/s;   # 입찰 API: IP당 초당 50건
+
+#제한에 걸렸을 때 돌려줄 상태 코드 (기본값 503  대신에 429 (뜻:Too many Requests)
+#503은 서버 고장으로 오해 될 수 있음, 그래서 요청이 많다는 429를 사용
+
+limit_conn_status 429;
+limit_req_status  429;
+
+
+#---4.요청을 넘겨 줄 백엔드 서버 묶음 --
+
+
+upstream artbid_backend {
+    server ${ARTBID_BACKEND};
+    keepalive 32;
+}
+
+#--5. 실제로 요청을 받는 서버 설정--
+
+server {
+    listen 80;
+    charset utf-8;
+
+    # 큰 요청 차단: 미디어는 S3로 직접 올라가서 백엔드에는 큰 요청이 오지 않는다
+    client_max_body_size 1m;
+
+    # IP당 동시 연결 수
+    limit_conn perip_conn 300;
+
+
+     #-- 백엔드로 넘길 때 붙
+     #
+     #
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    # 사용자가 보낸 X-Forwarded-For를 이어 붙이지 않고 덮어써서 IP 위조를 막는다
+    # (StreamingController가 이 헤더로 시청 토큰 발급 제한을 건다)
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # 백엔드와 같은 {code, message} 형식으로 거절 이유를 알려준다
+    error_page 429 = @too_many_requests;
+    error_page 413 = @payload_too_large;
+
+    location @too_many_requests {
+        default_type application/json;
+        return 429 '{"code":"TOO_MANY_REQUESTS","message":"요청이 너무 많습니다. 잠시 후 다시 시도해주세요."}';
+    }
+
+    location @payload_too_large {
+        default_type application/json;
+        return 413 '{"code":"PAYLOAD_TOO_LARGE","message":"요청 크기가 너무 큽니다."}';
+    }
+
+    # 실시간 입찰·채팅(SSE): 버퍼링 없이 바로 전달하고 연결을 오래 유지한다
+    location /ws/auctions/ {
+        limit_conn perip_conn 1000;
+        proxy_pass http://artbid_backend;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+    }
+
+    # 입찰 API: 작은 요청만 받고, 순간적으로 몰리는 건 burst만큼 받아준다
+    location ~ ^/api/auctions/[0-9]+/bids$ {
+        client_max_body_size 1k;
+        limit_req zone=perip_bid burst=100 nodelay;
+        proxy_pass http://artbid_backend;
+    }
+
+    location /api/ {
+        limit_req zone=perip_api burst=200 nodelay;
+        proxy_pass http://artbid_backend;
+    }
+
+    #나머지 요청: 요청 수 제한 없이 넘기고, 동시 연결 수 300만 적용
+    location / {
+        proxy_pass http://artbid_backend;
+    }
+}

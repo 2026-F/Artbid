@@ -110,6 +110,27 @@ services:
       - /dev/disk/:/dev/disk:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro   # cAdvisor가 컨테이너 이름(name 라벨)을 읽으려면 Docker 소켓 접근이 필요함
 
+  # --- 리버스 프록시(nginx): 요청이 nginx → backend 순서로 들어오게 한다 ---
+  # IP당 동시 연결 수·요청 속도 제한, 큰 요청 차단, SSE 프록시를 맡는다. 설정: nginx/templates/
+  # 아직 배포 경로에는 넣지 않았다. CD는 backend만 다시 띄우고, 외부 요청은 지금처럼 8080으로 들어온다.
+  # 배포 전환(EC2 포트, 프론트 API 주소, HTTPS, CD 스크립트)은 따로 맞춘 뒤 진행한다.
+  #
+  # 로컬에서 IntelliJ(bootRun) 백엔드로 테스트할 때 (PowerShell):
+  #   $env:NGINX_BACKEND="host.docker.internal:8080"; docker compose up -d --no-deps nginx
+  #   → http://localhost:8088/api/artworks
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend
+    ports:
+      - "${NGINX_HTTP_PORT:-8088}:80"
+    environment:
+      ARTBID_BACKEND: ${NGINX_BACKEND:-backend:8080}
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 호스트에서 bootRun으로 띄운 백엔드에 접근
+
   backend:
     image: ghcr.io/2026-f/artbid-backend:latest
     depends_on:
