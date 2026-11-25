@@ -30,4 +30,12 @@ public class RedisScriptConfig {
 	public RedisScript<Long> fixedWindowCounterScript() {
 		return RedisScript.of(new ClassPathResource("scripts/fixed_window_counter.lua"), Long.class);
 	}
+
+	// 슬라이딩 윈도우 횟수 제한: Sorted Set 정리, 세기, 추가를 한 번에 한다 (SlidingWindowRateLimiter).
+	// 결과는 {허용 여부, 요청 수, 남은 ms} 숫자 리스트.
+	@Bean
+	@SuppressWarnings("rawtypes")
+	public RedisScript<List> slidingWindowLimiterScript() {
+		return RedisScript.of(new ClassPathResource("scripts/sliding_window_limiter.lua"), List.class);
+	}
 }
