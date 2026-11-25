@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -37,6 +38,7 @@ public class PaymentRecoveryScheduler {
     private final PaymentRepository paymentRepository;
     private final PaymentTransactionService transactions;
     private final TossPaymentClient tossPaymentClient;
+    private final Clock paymentClock;
 
     // 요청 후 이 시간이 지난 결제만 확인한다. 사용자가 결제창에서 결제하는 중인 건을 건드리지 않기 위해서다.
     @Value("${app.payment.recovery.stale-after-minutes:15}")
@@ -44,7 +46,7 @@ public class PaymentRecoveryScheduler {
 
     @Scheduled(fixedDelayString = "${app.payment.recovery.interval-ms:60000}")
     public void run() {
-        RecoveryResult result = runOnce(LocalDateTime.now().truncatedTo(ChronoUnit.MICROS));
+        RecoveryResult result = runOnce(LocalDateTime.now(paymentClock).truncatedTo(ChronoUnit.MICROS));
         if (result.resolved() + result.unknown() + result.failed() > 0) {
             log.info("[결제 복구] 확정 {}건, 아직 모름 {}건, 처리 실패 {}건",
                     result.resolved(), result.unknown(), result.failed());

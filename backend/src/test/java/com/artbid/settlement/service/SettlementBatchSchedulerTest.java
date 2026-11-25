@@ -6,7 +6,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,7 +29,15 @@ class SettlementBatchSchedulerTest {
 
 	@BeforeEach
 	void setUp() {
-		scheduler = new SettlementBatchScheduler(settlementExpiryService, sellerPayoutService);
+		ZoneId zone = ZoneId.of("Asia/Seoul");
+		Clock clock = Clock.fixed(NOW.atZone(zone).toInstant().plusNanos(999), zone);
+		scheduler = new SettlementBatchScheduler(settlementExpiryService, sellerPayoutService, clock);
+	}
+
+	@Test
+	void 배치_실행_시_주입된_시계를_마이크로초_기준으로_사용한다() {
+		scheduler.run();
+		verify(settlementExpiryService).findOverdueIds(NOW);
 	}
 
 	@Test

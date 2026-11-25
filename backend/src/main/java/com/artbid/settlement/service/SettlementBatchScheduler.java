@@ -6,6 +6,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 
@@ -23,10 +24,11 @@ public class SettlementBatchScheduler {
 
 	private final SettlementExpiryService settlementExpiryService;
 	private final SellerPayoutService sellerPayoutService;
+	private final Clock paymentClock;
 
 	@Scheduled(cron = "${app.settlement.batch.cron:0 */10 * * * *}")
 	public void run() {
-		BatchResult result = runOnce(LocalDateTime.now().truncatedTo(ChronoUnit.MICROS));
+		BatchResult result = runOnce(LocalDateTime.now(paymentClock).truncatedTo(ChronoUnit.MICROS));
 		if (result.expired() + result.payoutsCreated() + result.failed() > 0) {
 			log.info("[정산 배치] 만료 {}건, 지급 대기 생성 {}건, 실패 {}건",
 					result.expired(), result.payoutsCreated(), result.failed());

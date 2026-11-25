@@ -9,6 +9,7 @@ import com.artbid.settlement.exception.SettlementAccessDeniedException;
 import com.artbid.settlement.exception.SettlementNotFoundException;
 import com.artbid.settlement.service.SettlementService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,7 +43,8 @@ class SettlementControllerTest {
 	@BeforeEach
 	void setUp() {
 		MockitoAnnotations.openMocks(this);
-		ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+		ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule())
+				.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 		mockMvc = MockMvcBuilders.standaloneSetup(new SettlementController(settlementService))
 				.setControllerAdvice(new SettlementExceptionHandler())
 				.setMessageConverters(
@@ -66,7 +68,9 @@ class SettlementControllerTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.id").value(1))
 				.andExpect(jsonPath("$.totalAmount").value(140_000))
-				.andExpect(jsonPath("$.paymentStatus").value("PENDING"));
+				.andExpect(jsonPath("$.paymentStatus").value("PENDING"))
+				.andExpect(jsonPath("$.paymentDeadlineAt").value("2026-11-01T12:00:00"))
+				.andExpect(jsonPath("$.serverNow").doesNotExist());
 	}
 
 	@Test

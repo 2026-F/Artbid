@@ -15,7 +15,9 @@ import com.artbid.notification.service.NotificationRequestedEvent;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.format.DateTimeFormatter;
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
@@ -42,6 +44,7 @@ public class SettlementCreationService {
     private final ArtworkRepository artworkRepository;
     private final AuctionRepository auctionRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final Clock paymentClock;
 
     /** 정산을 새로 만들었으면 true, 이미 있거나 만들 필요가 없으면 false. */
     @Transactional
@@ -60,7 +63,8 @@ public class SettlementCreationService {
             return false;
         }
 
-        LocalDateTime closedAt = message.closedAt() != null ? message.closedAt() : LocalDateTime.now();
+        LocalDateTime closedAt = message.closedAt() != null ? message.closedAt()
+                : LocalDateTime.now(paymentClock).truncatedTo(ChronoUnit.MICROS);
         long finalPrice = message.finalPrice();
         long premiumFee = Math.round(finalPrice * PREMIUM_RATE);
 
@@ -100,6 +104,6 @@ public class SettlementCreationService {
                 "'%s' 작품을 %,d원에 낙찰받았어요. %s까지 결제해 주세요."
                         .formatted(artwork.getTitle(), message.finalPrice(),
                                 settlement.getPaymentDeadlineAt().format(DEADLINE_FORMAT)),
-                "/mypage"));
+                "/mypage/payments"));
     }
 }

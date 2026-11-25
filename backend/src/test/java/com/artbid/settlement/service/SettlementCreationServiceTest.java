@@ -9,16 +9,18 @@ import com.artbid.auction.event.AuctionClosedMessage;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.repository.SettlementRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -42,7 +44,6 @@ class SettlementCreationServiceTest {
 	private ArtworkRepository artworkRepository;
 	@Mock
 	private AuctionRepository auctionRepository;
-	@InjectMocks
 	private SettlementCreationService service;
 
 	@Mock
@@ -52,6 +53,13 @@ class SettlementCreationServiceTest {
 	private static final Long ARTWORK_ID = 100L;
 	private static final Long BIDDER_ID = 10L;
 	private static final LocalDateTime CLOSED_AT = LocalDateTime.of(2026, 11, 16, 12, 0);
+
+	@BeforeEach
+	void setUp() {
+		ZoneId zone = ZoneId.of("Asia/Seoul");
+		Clock clock = Clock.fixed(CLOSED_AT.atZone(zone).toInstant(), zone);
+		service = new SettlementCreationService(settlementRepository, artworkRepository, auctionRepository, eventPublisher, clock);
+	}
 
 	private AuctionClosedMessage message() {
 		return new AuctionClosedMessage(AUCTION_ID, BIDDER_ID, ARTWORK_ID, 15_000L, CLOSED_AT);
@@ -95,7 +103,18 @@ class SettlementCreationServiceTest {
 		verify(eventPublisher).publishEvent(notice.capture());
 		assertThat(notice.getValue().memberId()).isEqualTo(BIDDER_ID);
 		assertThat(notice.getValue().type()).isEqualTo(NotificationType.AUCTION_WON);
+		assertThat(notice.getValue().linkUrl()).isEqualTo("/mypage/payments");
 		assertThat(notice.getValue().message()).contains("무제", "15,000원", "11월 19일 12:00");
+	}
+
+	@Test
+	void 마감_시각이_없으면_한국_시간_기준으로_기한을_만든다() {
+		when(artworkRepository.findById(ARTWORK_ID)).thenReturn(Optional.of(artworkInAuction()));
+		service.createForClosedAuction(new AuctionClosedMessage(AUCTION_ID, BIDDER_ID, ARTWORK_ID, 15_000L, null));
+
+		ArgumentCaptor<Settlement> captor = ArgumentCaptor.forClass(Settlement.class);
+		verify(settlementRepository).saveAndFlush(captor.capture());
+		assertThat(captor.getValue().getPaymentDeadlineAt()).isEqualTo(CLOSED_AT.plusDays(3));
 	}
 
 	@Test

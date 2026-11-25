@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -24,6 +25,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PaymentControllerTest {
 	private static final String JWT_TEST_KEY = "payment-controller-tests-only-signing-key";
 	private static final String ACTIVE_URL = "/api/settlements/2/payments/active";
+	private static final OffsetDateTime DEADLINE = OffsetDateTime.parse("2026-11-28T12:00:00+09:00");
+	private static final OffsetDateTime SERVER_NOW = OffsetDateTime.parse("2026-11-25T12:00:00.123456+09:00");
 	private PaymentService service;
 	private MockMvc mvc;
 	private JwtTokenProvider tokens;
@@ -92,12 +95,14 @@ class PaymentControllerTest {
 	@Test
 	void 활성_결제_조회는_검증된_토큰을_사용하고_응답을_캐시하지_않는다() throws Exception {
 		when(service.getActive(2L, 3L)).thenReturn(new ActivePaymentResponse(
-				com.artbid.settlement.domain.PaymentStatus.PENDING, null,
+				com.artbid.settlement.domain.PaymentStatus.PENDING, null, DEADLINE, SERVER_NOW,
 				new ActivePaymentResponse.ActivePayment(1L, PaymentStatus.REQUESTED)));
 		mvc.perform(get(ACTIVE_URL).header("Authorization", "Bearer " + tokens.generateToken(3L, MemberRole.BIDDER)))
 				.andExpect(status().isOk())
 				.andExpect(header().string("Cache-Control", "no-store"))
 				.andExpect(jsonPath("$.settlementStatus").value("PENDING"))
+				.andExpect(jsonPath("$.paymentDeadlineAt").value("2026-11-28T12:00:00+09:00"))
+				.andExpect(jsonPath("$.serverNow").value("2026-11-25T12:00:00.123456+09:00"))
 				.andExpect(jsonPath("$.payment.id").value(1))
 				.andExpect(jsonPath("$.payment.status").value("REQUESTED"))
 				.andExpect(jsonPath("$.payment.amount").doesNotExist());
@@ -106,7 +111,7 @@ class PaymentControllerTest {
 	@Test
 	void 활성_결제가_없으면_payment_필드를_null로_반환한다() throws Exception {
 		when(service.getActive(2L, 3L)).thenReturn(new ActivePaymentResponse(
-				com.artbid.settlement.domain.PaymentStatus.PAID, null, null));
+				com.artbid.settlement.domain.PaymentStatus.PAID, null, DEADLINE, SERVER_NOW, null));
 		mvc.perform(get(ACTIVE_URL).principal(() -> "3"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.settlementStatus").value("PAID"))
