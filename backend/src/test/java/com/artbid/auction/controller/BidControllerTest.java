@@ -1,6 +1,8 @@
 package com.artbid.auction.controller;
 
+import com.artbid.auction.service.BidRateLimiter;
 import com.artbid.auction.service.BidService;
+import com.artbid.common.exception.BidRateLimitExceededException;
 import com.artbid.common.exception.BidTemporarilyUnavailableException;
 import com.artbid.common.exception.GlobalExceptionHandler;
 import com.artbid.common.exception.InvalidBidException;
@@ -14,16 +16,20 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -47,6 +53,9 @@ class BidControllerTest {
 	@Mock
 	private BidService bidService;
 
+	@Mock
+	private BidRateLimiter bidRateLimiter;
+
 	private MockMvc mockMvc;
 	private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
@@ -56,7 +65,7 @@ class BidControllerTest {
 	@BeforeEach
 	void setUp() {
 		MockitoAnnotations.openMocks(this);
-		BidController controller = new BidController(bidService);
+		BidController controller = new BidController(bidService, bidRateLimiter);
 		mockMvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler(), new BidExceptionHandler())
 				.setMessageConverters(
@@ -185,5 +194,34 @@ class BidControllerTest {
 				.andExpect(jsonPath("$[0].canceled").value(false))
 				.andExpect(jsonPath("$[1].bidId").value(1))
 				.andExpect(jsonPath("$[1].canceled").value(true));
+	}
+
+	@Test
+	void 입찰_횟수_제한을_넘으면_429와_Retry_After를_반환하고_입찰하지_않는다() throws Exception {
+		doThrow(new BidRateLimitExceededException(Duration.ofMillis(1_200))).when(bidRateLimiter).check(10L);
+
+		String requestBody = objectMapper.writeValueAsString(new BidController.BidRequest(15_000L));
+
+		mockMvc.perform(post("/api/auctions/{auctionId}/bids", 1L)
+						.principal(LOGGED_IN_AS_10)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(requestBody))
+				.andExpect(status().isTooManyRequests())
+				.andExpect(header().string("Retry-After", "2"))
+				.andExpect(jsonPath("$.code").value("BID_RATE_LIMITED"));
+
+		verifyNoInteractions(bidService);
+	}
+
+	@Test
+	void 비로그인_입찰은_횟수_제한보다_먼저_401로_거절한다() throws Exception {
+		String requestBody = objectMapper.writeValueAsString(new BidController.BidRequest(15_000L));
+
+		mockMvc.perform(post("/api/auctions/{auctionId}/bids", 1L)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(requestBody))
+				.andExpect(status().isUnauthorized());
+
+		verifyNoInteractions(bidRateLimiter);
 	}
 }
