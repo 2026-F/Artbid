@@ -69,7 +69,7 @@ MSA 전환 시 다음 세 서비스로 분리할 예정이다.
 | 프레임워크 | Spring Boot 3.3.4 | REST API와 애플리케이션 구성 |
 | 데이터 접근 | Spring Data JPA | 도메인 저장과 조회, 입찰 행 락 처리 |
 | 데이터베이스 | PostgreSQL 16 | 회원, 작품, 경매, 결제 등 데이터 저장 |
-| Redis 연동 | Redis 7, Spring Data Redis | 경매 실시간 상태 캐시. 장애 시 DB로 대체. 그 밖의 역할은 미정 |
+| Redis 연동 | Redis 7, Spring Data Redis | 경매 실시간 상태 캐시. 장애 시 DB로 대체. 채팅, 시청 토큰, 입찰 요청 횟수 제한 |
 | 이벤트 처리 | Kafka, Spring Kafka | 경매와 입찰에 도입 예정. 관련 코드와 확장 인프라 존재 |
 | 실시간 알림 | SSE | 입찰 커밋 후 경매 상태 전파. 현재 서버 안 Spring 이벤트로 전달하며 Kafka 도입 후 발행 지점 교체 예정 |
 | 인증 | JWT, JJWT, Spring Security Crypto | 토큰 처리와 비밀번호 해싱 |
