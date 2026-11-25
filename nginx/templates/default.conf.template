@@ -1,56 +1,54 @@
 # ArtBid 리버스 프록시 설정
 # nginx 공식 이미지가 시작할 때 ${ARTBID_BACKEND} 자리에 환경변수 값을 넣어
 # /etc/nginx/conf.d/default.conf로 만든다. 백엔드 주소는 docker-compose.yml에서 정한다.
+# (공식 이미지는 "실제로 정의된 환경변수"만 바꿔 넣으므로 $host, $remote_addr 같은
+#  nginx 자체 변수는 그대로 남는다)
 #
 # IP 기준 제한은 "한 IP에서 대놓고 쏟아지는 요청"만 막는 느슨한 1차 방어선이다.
 # 기숙사·학교는 수백 명이 IP 하나를 공유하므로, 매크로 차단은 백엔드의 회원 기준 제한에서 한다.
 # 아래 숫자는 임시값이다. k6로 "같은 IP의 정상 사용자 수백 명" 시나리오를 돌려 조정한다.
 
-# ---1.제한에서 뺄 IP (k6 부하테스트를 보내는 서버 등)----
-# geo:요청을 보낸 IP를 보고 값을 정해주는 규칙
-# $limited값이 1이면 검사 대상, 0이면 검사 안함
+# ---1. 제한에서 뺄 IP (k6 부하테스트를 보내는 서버 등)---
+# geo: 요청을 보낸 IP를 보고 값을 정해주는 규칙
+# $limited 값이 1이면 검사 대상, 0이면 검사 안 함
 geo $limited {
     default        1; # 기본: 모든 요청은 검사 대상
-    127.0.0.1      0; # 내 컴퓨터 120.0.0.1에서 온 요청은 검사 안함
+    127.0.0.1      0; # 내 컴퓨터(127.0.0.1)에서 온 요청은 검사 안 함
     # 203.0.113.10 0;   # 나중에 k6 부하테스트 서버 IP를 여기에 적기!
 }
 
 
-#---2.요청을 셀 때 쓸 기준 값 정하기---
-
-#map: 앞의 값($limited)에 따라 새 값($limit_key)을 규칙함
-# 검사 대상이면 기준값을 요청 IP를 키로 쓰고, 예외면 기준값을 빈 값
-#ngix는 빈값인 요청은 세지 않음
+# ---2. 요청을 셀 때 쓸 기준 값 정하기---
+# map: 앞의 값($limited)에 따라 새 값($limit_key)을 정하는 규칙
+# 검사 대상이면 요청 IP를 기준값(키)으로 쓰고, 예외면 기준값을 빈 값으로 둔다
+# nginx는 기준값이 빈 요청은 세지 않는다 → 예외 IP는 제한에 안 걸림
 map $limited $limit_key {
     0 "";
-    1 $binary_remote_addr; #IP를 문자열 대신 4바이트로 저장해 메모리를 아낀다
+    1 $binary_remote_addr;  # IP를 문자열 대신 4바이트(IPv4)로 저장해 메모리를 아낀다
 }
 
-#---3. 요청 수를 기록할 저장 공간 만들기
-#zone= 이름 : 크기 -> 아이피 별 카운트를 담아둘 공유 메모리 10m 이면, 16만 개를 기억 할 수 있다
-#여기서는 공간과 기준 속도만 만들고, 실제 적용은 아래 server/location에서 한다
 
+# ---3. 요청 수를 기록할 저장 공간(zone) 만들기---
+# zone=이름:크기 → IP별 카운트를 담아둘 공유 메모리. 10m이면 IP 약 16만 개를 기억할 수 있다
+# 여기서는 공간과 기준 속도만 만들고, 실제 적용은 아래 server/location에서 한다
 limit_conn_zone $limit_key zone=perip_conn:10m;             # IP별 동시 연결 수
 limit_req_zone  $limit_key zone=perip_api:10m rate=100r/s;  # 일반 API: IP당 초당 100건
 limit_req_zone  $limit_key zone=perip_bid:10m rate=50r/s;   # 입찰 API: IP당 초당 50건
 
-#제한에 걸렸을 때 돌려줄 상태 코드 (기본값 503  대신에 429 (뜻:Too many Requests)
-#503은 서버 고장으로 오해 될 수 있음, 그래서 요청이 많다는 429를 사용
-
+# 제한에 걸렸을 때 돌려줄 상태 코드 (기본값 503 대신 429 Too Many Requests)
+# 503은 "서버 고장"으로 오해되므로, "요청이 많다"는 뜻이 분명한 429를 쓴다
 limit_conn_status 429;
 limit_req_status  429;
 
 
-#---4.요청을 넘겨 줄 백엔드 서버 묶음 --
-
-
+# ---4. 요청을 넘겨줄 백엔드 서버 묶음---
 upstream artbid_backend {
-    server ${ARTBID_BACKEND};
-    keepalive 32;
+    server ${ARTBID_BACKEND};  # 컨테이너 시작 시 환경변수 값으로 바뀜 (예: backend:8080)
+    keepalive 32;              # 백엔드와의 연결을 최대 32개까지 열어둔 채 재사용 → 매번 새로 연결하는 비용을 줄임
 }
 
-#--5. 실제로 요청을 받는 서버 설정--
 
+# ---5. 실제로 요청을 받는 서버 설정---
 server {
     listen 80;
     charset utf-8;
@@ -58,28 +56,30 @@ server {
     # 큰 요청 차단: 미디어는 S3로 직접 올라가서 백엔드에는 큰 요청이 오지 않는다
     client_max_body_size 1m;
 
-    # IP당 동시 연결 수
+    # IP당 동시 연결 수 (아래 location에서 따로 정하지 않은 곳에 적용)
     limit_conn perip_conn 300;
 
-
-     #-- 백엔드로 넘길 때 붙
-     #
-     #
+    # --- 백엔드로 넘길 때 붙이는 설정 ---
+    # keepalive를 쓰려면 HTTP/1.1 + Connection 헤더 비우기가 둘 다 필요하다
+    # (HTTP/1.0이나 "Connection: close"면 요청마다 연결이 끊김)
     proxy_http_version 1.1;
     proxy_set_header Connection "";
-    proxy_set_header Host              $host;
-    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header Host              $host;         # 사용자가 접속한 도메인을 그대로 전달
+    proxy_set_header X-Real-IP         $remote_addr;  # 실제 사용자 IP (백엔드 입장에선 nginx IP만 보이므로)
     # 사용자가 보낸 X-Forwarded-For를 이어 붙이지 않고 덮어써서 IP 위조를 막는다
     # (StreamingController가 이 헤더로 시청 토큰 발급 제한을 건다)
     proxy_set_header X-Forwarded-For   $remote_addr;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Proto $scheme;       # 원래 요청이 http인지 https인지 전달
 
+    # --- 에러 응답 형식 맞추기 ---
     # 백엔드와 같은 {code, message} 형식으로 거절 이유를 알려준다
+    # 429·413이 나면 nginx 기본 HTML 페이지 대신 아래 @이름 location으로 보낸다
     error_page 429 = @too_many_requests;
     error_page 413 = @payload_too_large;
 
+    # @로 시작하는 location은 내부 전용: 외부에서 주소로 직접 들어올 수 없다
     location @too_many_requests {
-        default_type application/json;
+        default_type application/json;  # 프론트가 JSON으로 파싱할 수 있게 Content-Type 지정
         return 429 '{"code":"TOO_MANY_REQUESTS","message":"요청이 너무 많습니다. 잠시 후 다시 시도해주세요."}';
     }
 
@@ -88,28 +88,39 @@ server {
         return 413 '{"code":"PAYLOAD_TOO_LARGE","message":"요청 크기가 너무 큽니다."}';
     }
 
+    # --- 경로별 규칙 ---
+    # nginx는 정규식(~) location을 먼저 맞춰보고, 없으면 가장 길게 일치하는 접두사 location을 쓴다
+    # → 입찰 API는 /api/보다 먼저 아래 정규식 규칙에 걸린다
+
     # 실시간 입찰·채팅(SSE): 버퍼링 없이 바로 전달하고 연결을 오래 유지한다
     location /ws/auctions/ {
+        # SSE는 시청자 한 명당 연결을 계속 붙잡고 있으므로 동시 연결 한도를 넉넉하게 둔다
+        # (location에 limit_conn을 따로 쓰면 server의 300 대신 이 값만 적용된다)
         limit_conn perip_conn 1000;
         proxy_pass http://artbid_backend;
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 1h;
+        proxy_buffering off;     # 모아서 보내지 않고 이벤트가 오는 즉시 사용자에게 전달
+        proxy_cache off;         # 실시간 데이터는 캐시하지 않음
+        proxy_read_timeout 1h;   # 기본 60초면 이벤트가 뜸할 때 연결이 끊기므로 1시간으로 늘림
     }
 
     # 입찰 API: 작은 요청만 받고, 순간적으로 몰리는 건 burst만큼 받아준다
+    # 정규식: /api/auctions/{숫자}/bids 경로에만 일치
     location ~ ^/api/auctions/[0-9]+/bids$ {
-        client_max_body_size 1k;
+        client_max_body_size 1k;  # 입찰 요청은 금액 정도만 담기므로 1KB면 충분
+        # rate(초당 50건)를 넘은 요청도 burst(100건)까지는 대기열에 받아준다
+        # nodelay: 받아준 요청을 줄 세워 늦추지 않고 바로 처리 (마감 직전 입찰이 지연되면 안 되므로)
+        # burst까지 다 차면 그다음 요청은 429
         limit_req zone=perip_bid burst=100 nodelay;
         proxy_pass http://artbid_backend;
     }
 
+    # 그 밖의 API: 입찰보다 넉넉한 한도
     location /api/ {
         limit_req zone=perip_api burst=200 nodelay;
         proxy_pass http://artbid_backend;
     }
 
-    #나머지 요청: 요청 수 제한 없이 넘기고, 동시 연결 수 300만 적용
+    # 나머지 요청 (헬스체크 등): 요청 수 제한 없이 넘기고, 동시 연결 수(300)만 적용
     location / {
         proxy_pass http://artbid_backend;
     }
