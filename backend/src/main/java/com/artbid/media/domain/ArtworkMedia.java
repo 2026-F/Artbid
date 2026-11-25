@@ -1,11 +1,18 @@
 package com.artbid.media.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-@Table(indexes = @Index(name = "idx_artwork_media_artwork", columnList = "artworkId, sortOrder, id"))
+import java.time.Instant;
+
 @Entity
+@Table(
+		indexes = @Index(name = "idx_artwork_media_artwork", columnList = "artworkId, sortOrder, id"),
+		uniqueConstraints = @UniqueConstraint(name = "uk_artwork_media_artwork_object_key",
+				columnNames = {"artwork_id", "object_key"})
+)
 @Getter
 @NoArgsConstructor
 public class ArtworkMedia {
@@ -17,6 +24,11 @@ public class ArtworkMedia {
 	private Long id;
 
 	private Long artworkId;
+
+	// 기존 행은 완료 재시도에서 키를 확인한 경우에만 채운다.
+	@JsonIgnore
+	@Column(name = "object_key", updatable = false)
+	private String objectKey;
 
 	@Enumerated(EnumType.STRING)
 	private MediaType mediaType;
@@ -35,11 +47,25 @@ public class ArtworkMedia {
 	@Column(length = 100)
 	private String transcodeJobId;
 
+	// 변환 요청 처리권 만료 시각
+	@JsonIgnore
+	private Instant transcodeClaimUntil;
+
+	// AWS 요청을 보내기 전에 기록한다. 응답이 유실되면 이 시점부터 작업 이력을 확인한다.
+	@JsonIgnore
+	private Instant transcodeFirstAttemptAt;
+
 	@Column(length = FAILURE_REASON_MAX_LENGTH)
 	private String transcodeFailureReason;
 
 	public ArtworkMedia(Long artworkId, MediaType mediaType, String url, String sourceUrl, Integer sortOrder) {
+		this(artworkId, mediaType, url, sourceUrl, sortOrder, null);
+	}
+
+	public ArtworkMedia(Long artworkId, MediaType mediaType, String url, String sourceUrl, Integer sortOrder,
+			String objectKey) {
 		this.artworkId = artworkId;
+		this.objectKey = objectKey;
 		this.mediaType = mediaType;
 		this.url = url;
 		this.sourceUrl = sourceUrl;
@@ -48,6 +74,22 @@ public class ArtworkMedia {
 
 	public void updateUrl(String url) {
 		this.url = url;
+	}
+
+	public void queueTranscode() {
+		this.transcodeStatus = TranscodeStatus.PROCESSING;
+	}
+
+	public void claimTranscode(Instant now, Instant until) {
+		this.transcodeClaimUntil = until;
+		if (this.transcodeFirstAttemptAt == null) {
+			this.transcodeFirstAttemptAt = now;
+		}
+	}
+
+	public void finishTranscodeSubmission() {
+		this.transcodeClaimUntil = null;
+		this.transcodeFirstAttemptAt = null;
 	}
 
 	public void startTranscode(String jobId) {

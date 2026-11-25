@@ -16,11 +16,12 @@ import org.springframework.scheduling.annotation.Scheduled;
 @RequiredArgsConstructor
 public class TranscodeStatusPoller {
 
-	private final TranscodeService transcodeService;
+	private final TranscodeDispatcher transcodeDispatcher;
 
 	@Scheduled(fixedDelayString = "${media.mediaconvert.poll-interval-ms:60000}",
 			initialDelayString = "${media.mediaconvert.poll-interval-ms:60000}")
 	public void poll() {
-		transcodeService.refreshProcessingJobs();
+		transcodeDispatcher.retryPending();
+		transcodeDispatcher.scheduleStatusRefresh();
 	}
 }

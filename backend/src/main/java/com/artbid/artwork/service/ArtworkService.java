@@ -67,6 +67,14 @@ public class ArtworkService {
 
 	public ArtworkPageResponse getArtworks(ArtworkSearchCondition condition, Pageable pageable) {
 		Page<Artwork> page = artworkRepository.findAll(ArtworkSpecifications.matches(condition), pageable);
+		return toPage(page);
+	}
+
+	public ArtworkPageResponse getMyArtworks(Long memberId, Pageable pageable) {
+		return toPage(artworkRepository.findByConsignorId(memberId, pageable));
+	}
+
+	private ArtworkPageResponse toPage(Page<Artwork> page) {
 		return ArtworkPageResponse.of(page, findArtistNames(page), findAuctionIds(page), findMedia(page));
 	}
 
@@ -89,6 +97,12 @@ public class ArtworkService {
 
 	public ArtworkDetailResponse getArtwork(Long artworkId) {
 		return toDetail(findArtwork(artworkId));
+	}
+
+	public ArtworkDetailResponse getMyArtwork(Long artworkId, Long memberId) {
+		Artwork artwork = artworkRepository.findByIdAndConsignorId(artworkId, memberId)
+				.orElseThrow(() -> new ArtworkNotFoundException(artworkId));
+		return toDetail(artwork);
 	}
 
 	@Transactional

@@ -54,7 +54,7 @@ class TranscodeServiceTest {
 	private ArtworkMedia processingVideo() {
 		ArtworkMedia media = video();
 		media.startTranscode("job-1");
-		when(repository.findTop50ByTranscodeStatusOrderByIdAsc(TranscodeStatus.PROCESSING)).thenReturn(List.of(media));
+		when(repository.findTop50ByTranscodeStatusAndTranscodeJobIdIsNotNullOrderByIdAsc(TranscodeStatus.PROCESSING)).thenReturn(List.of(media));
 		return media;
 	}
 
