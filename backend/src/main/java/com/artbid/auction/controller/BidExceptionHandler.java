@@ -1,7 +1,9 @@
 package com.artbid.auction.controller;
 
 import com.artbid.common.exception.BidAuthRequiredException;
+import com.artbid.common.exception.BidRateLimitExceededException;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -22,6 +24,16 @@ public class BidExceptionHandler {
 	@ExceptionHandler(BidAuthRequiredException.class)
 	public ResponseEntity<ErrorResponse> authRequired(BidAuthRequiredException e) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse("AUTH_REQUIRED", e.getMessage()));
+	}
+
+	// 회원별 입찰 횟수 제한 초과. Retry-After(초)로 언제 다시 보내면 되는지 알려준다.
+	// nginx의 IP 기준 429(TOO_MANY_REQUESTS)와 구분되게 코드를 따로 쓴다.
+	@ExceptionHandler(BidRateLimitExceededException.class)
+	public ResponseEntity<ErrorResponse> rateLimited(BidRateLimitExceededException e) {
+		long seconds = Math.max(1, (e.getRetryAfter().toMillis() + 999) / 1000);
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+				.header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds))
+				.body(new ErrorResponse("BID_RATE_LIMITED", e.getMessage()));
 	}
 
 	// @Valid 검증 실패(price 누락 등), JSON 파싱 실패, 경로/파라미터 타입 불일치를 전부 400으로 묶어서 처리.
