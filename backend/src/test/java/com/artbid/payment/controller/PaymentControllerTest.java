@@ -1,6 +1,10 @@
 package com.artbid.payment.controller;
 
+import com.artbid.member.auth.JwtAuthenticationFilter;
+import com.artbid.member.auth.JwtTokenProvider;
+import com.artbid.member.domain.MemberRole;
 import com.artbid.payment.domain.*;
+import com.artbid.payment.dto.ActivePaymentResponse;
 import com.artbid.payment.dto.PaymentResponse;
 import com.artbid.payment.exception.PaymentException;
 import com.artbid.payment.service.PaymentService;
@@ -12,18 +16,24 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.time.LocalDateTime;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class PaymentControllerTest {
+	private static final String JWT_TEST_KEY = "payment-controller-tests-only-signing-key";
+	private static final String ACTIVE_URL = "/api/settlements/2/payments/active";
 	private PaymentService service;
 	private MockMvc mvc;
+	private JwtTokenProvider tokens;
 
 	@BeforeEach
 	void setup() {
 		service = mock(PaymentService.class);
+		tokens = new JwtTokenProvider(JWT_TEST_KEY, 60_000);
 		mvc = MockMvcBuilders.standaloneSetup(new PaymentController(service))
+				.addFilters(new JwtAuthenticationFilter(tokens))
 				.setControllerAdvice(new GlobalExceptionHandler(), new PaymentExceptionHandler()).build();
 	}
 
@@ -77,6 +87,53 @@ class PaymentControllerTest {
 				.andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PAID"));
 		mvc.perform(get("/api/payments/1").principal(() -> "4"))
 				.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+	}
+
+	@Test
+	void 활성_결제_조회는_검증된_토큰을_사용하고_응답을_캐시하지_않는다() throws Exception {
+		when(service.getActive(2L, 3L)).thenReturn(new ActivePaymentResponse(
+				com.artbid.settlement.domain.PaymentStatus.PENDING, null,
+				new ActivePaymentResponse.ActivePayment(1L, PaymentStatus.REQUESTED)));
+		mvc.perform(get(ACTIVE_URL).header("Authorization", "Bearer " + tokens.generateToken(3L, MemberRole.BIDDER)))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Cache-Control", "no-store"))
+				.andExpect(jsonPath("$.settlementStatus").value("PENDING"))
+				.andExpect(jsonPath("$.payment.id").value(1))
+				.andExpect(jsonPath("$.payment.status").value("REQUESTED"))
+				.andExpect(jsonPath("$.payment.amount").doesNotExist());
+	}
+
+	@Test
+	void 활성_결제가_없으면_payment_필드를_null로_반환한다() throws Exception {
+		when(service.getActive(2L, 3L)).thenReturn(new ActivePaymentResponse(
+				com.artbid.settlement.domain.PaymentStatus.PAID, null, null));
+		mvc.perform(get(ACTIVE_URL).principal(() -> "3"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.settlementStatus").value("PAID"))
+				.andExpect(jsonPath("$.payment").hasJsonPath())
+				.andExpect(jsonPath("$.payment").value(nullValue()));
+	}
+
+	@Test
+	void 활성_결제_조회에서_비로그인과_만료_토큰은_401이다() throws Exception {
+		String expired = new JwtTokenProvider(JWT_TEST_KEY, -60_000).generateToken(3L, MemberRole.BIDDER);
+		mvc.perform(get(ACTIVE_URL).param("memberId", "3"))
+				.andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+		mvc.perform(get(ACTIVE_URL).header("Authorization", "Bearer " + expired))
+				.andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+		verifyNoInteractions(service);
+	}
+
+	@Test
+	void 활성_결제_조회에서_다른_구매자와_판매자는_403이고_없는_정산은_404다() throws Exception {
+		when(service.getActive(2L, 4L)).thenThrow(new PaymentException(HttpStatus.FORBIDDEN, "FORBIDDEN", "권한 없음"));
+		when(service.getActive(2L, 3L)).thenThrow(new PaymentException(HttpStatus.NOT_FOUND, "NOT_FOUND", "정산 없음"));
+		for (MemberRole role : new MemberRole[]{MemberRole.BIDDER, MemberRole.CONSIGNOR}) {
+			mvc.perform(get(ACTIVE_URL).header("Authorization", "Bearer " + tokens.generateToken(4L, role)))
+					.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+		}
+		mvc.perform(get(ACTIVE_URL).principal(() -> "3"))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("NOT_FOUND"));
 	}
 
 	@Test

@@ -1,5 +1,6 @@
 package com.artbid.payment.controller;
 
+import com.artbid.payment.dto.ActivePaymentResponse;
 import com.artbid.payment.dto.TossConfirmRequest;
 import com.artbid.payment.service.PaymentService;
 import com.artbid.payment.domain.PaymentMethod;
@@ -9,6 +10,7 @@ import com.artbid.payment.exception.PaymentException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.security.Principal;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,6 +39,12 @@ public class PaymentController {
 	@GetMapping("/payments/{id}")
 	public PaymentResponse get(@PathVariable("id") Long id, Principal principal) {
 		return paymentService.get(id, memberId(principal));
+	}
+
+	@GetMapping("/settlements/{id}/payments/active")
+	public ResponseEntity<ActivePaymentResponse> getActive(@PathVariable("id") Long id, Principal principal) {
+		ActivePaymentResponse response = paymentService.getActive(id, memberId(principal));
+		return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(response);
 	}
 
 	@PostMapping("/payments/{id}/confirm")
