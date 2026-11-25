@@ -24,6 +24,7 @@ public class MemberService {
 		requireSelf(id, requesterId);
 		Member member = getMember(id);
 		member.updateName(request.name());
+		member.updateNickname(request.nickname());
 		return member;
 	}
 

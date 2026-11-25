@@ -7,6 +7,8 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
+// 경매 하나에 정산은 하나. 마감 이벤트가 중복으로 처리돼도 두 번째 INSERT를 DB가 막는다.
+@Table(uniqueConstraints = @UniqueConstraint(name = "uk_settlement_auction_id", columnNames = "auction_id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Settlement {

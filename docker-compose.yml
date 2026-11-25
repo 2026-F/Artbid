@@ -31,27 +31,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # --- 확장 단계 (필요할 때만: docker compose --profile expansion up -d) ---
-  # 2026-09-06 개정: Kafka는 P0에서 제외하고 확장 단계(Transactional Outbox 도입 시)로 미뤘습니다.
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
-    profiles: ["expansion"]
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-
-  kafka:
-    image: confluentinc/cp-kafka:7.6.0
-    profiles: ["expansion"]
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-
   # --- 미디어 트랙에서 필요할 때: docker compose --profile media up -d ---
   # 2026-09-16 수정: minio/minio가 Docker Hub에서 내려가서(pull access denied) quay.io로 교체.
   minio:
@@ -130,9 +109,16 @@ services:
       # SQL을 찍기 때문에 커넥션 사용 시간과 CPU를 직접 늘린다(부하테스트에서 평균 19ms 확인).
       # 로컬 bootRun에는 영향 없도록 컨테이너 환경변수로만 끈다.
       SPRING_JPA_SHOW_SQL: "false"
-      # outbox_event에 쌓인 이벤트(경매 마감 등)를 1초마다 Redis Stream으로 발행한다.
-      # application.yml 기본값은 false라서 로컬 bootRun에서는 꺼져 있고, 배포 서버에서만 켠다.
-      OUTBOX_PUBLISHER_ENABLED: "true"
+      # 서버를 한국 시간으로 돌린다.
+      # 프론트는 시간대 없는 시각 문자열("2026-11-22T22:00:00")을 한국 시간으로 보내고 보여 주는데,
+      # 서버가 UTC면 같은 문자열을 9시간 다르게 해석한다 (경매 마감이 9시간 늦어지고, 서버가 만든 시각은 9시간 이르게 보임).
+      # LocalDateTime.now()와 ZoneId.systemDefault()가 모두 이 값을 따른다.
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul"
+      # 비밀 값은 서버의 .env 파일에서 읽는다 (docker compose가 같은 폴더의 .env를 자동으로 읽음).
+      # .env가 없는 로컬에서는 application.yml과 같은 개발용 기본값을 쓴다.
+      TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-test_sk_dummy_key_for_local_dev_only}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-only-please-change-this-secret-before-prod-32}
 
 
 volumes:

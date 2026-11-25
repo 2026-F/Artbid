@@ -12,6 +12,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import com.artbid.payment.domain.PaymentMethod;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -61,6 +63,35 @@ public class PaymentService {
 			return payment;
 		}
 		return transactions.complete(payment.settlementId(), paymentId, result);
+	}
+
+	/**
+	 * 결제창에서 취소하거나 실패했을 때 프론트가 부른다. 요청됨(REQUESTED) 결제를 바로 정리해서
+	 * 복구 스케줄러(15분)를 기다리지 않고 다시 결제할 수 있게 한다.
+	 *
+	 * 바로 실패로 바꾸지 않고 토스에 먼저 물어본다. 사용자가 실제로는 카드 인증을 끝냈고 승인이 진행 중일 수 있어서다.
+	 *  - 이미 확정된 결제 → 그대로 돌려준다 (여러 번 불러도 안전)
+	 *  - 토스: 결제 내역 없음·중단·만료·취소 → 실패로 확정 / 결제 완료 → 완료로 확정
+	 *  - 토스: 진행 중이거나 응답 없음 → 바꾸지 않고 409 (조금 뒤 다시 시도하거나 복구 스케줄러가 정리)
+	 *  - 모의 결제: 조회할 곳이 없으므로 바로 실패로 확정
+	 */
+	@Transactional(propagation = Propagation.NEVER)
+	public PaymentResponse cancel(Long paymentId, Long memberId) {
+		PaymentResponse payment = transactions.get(paymentId, memberId); // 낙찰자 본인인지 여기서 확인한다
+		if (payment.status() != PaymentStatus.REQUESTED) {
+			return payment;
+		}
+
+		Optional<PaymentGateway.Result> result = payment.method() == PaymentMethod.TOSS
+				? tossPaymentClient.lookup("payment_" + paymentId, payment.amount())
+				: Optional.of(new PaymentGateway.Result(false, null, "사용자가 결제를 취소함"));
+
+		if (result.isEmpty()) {
+			throw new PaymentException(HttpStatus.CONFLICT, "PAYMENT_IN_PROGRESS",
+					"결제를 확인하고 있어요. 잠시 후 다시 시도해 주세요.");
+		}
+		transactions.resolveUnknown(paymentId, result.get());
+		return transactions.get(paymentId, memberId);
 	}
 
 

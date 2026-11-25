@@ -45,6 +45,12 @@ public class PaymentController {
 		return paymentService.confirmToss(id, memberId(principal), request.paymentKey(), request.orderId());
 	}
 
+	// 결제창에서 취소·실패했을 때 프론트가 부른다. 토스에 확인한 뒤 결제를 정리해서 바로 다시 결제할 수 있게 한다.
+	@PostMapping("/payments/{id}/cancel")
+	public PaymentResponse cancel(@PathVariable("id") Long id, Principal principal) {
+		return paymentService.cancel(id, memberId(principal));
+	}
+
 	// Authentication 연동 계약: Principal.name에는 검증된 Member ID를 사용한다.
 	private Long memberId(Principal principal) {
 		if (principal != null) {

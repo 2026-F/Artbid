@@ -8,8 +8,11 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 @Entity
-@Table(uniqueConstraints = @UniqueConstraint(name = "uk_artwork_media_artwork_object_key",
-		columnNames = {"artwork_id", "object_key"}))
+@Table(
+		indexes = @Index(name = "idx_artwork_media_artwork", columnList = "artworkId, sortOrder, id"),
+		uniqueConstraints = @UniqueConstraint(name = "uk_artwork_media_artwork_object_key",
+				columnNames = {"artwork_id", "object_key"})
+)
 @Getter
 @NoArgsConstructor
 public class ArtworkMedia {
