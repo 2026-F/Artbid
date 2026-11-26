@@ -16,7 +16,9 @@ import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 import java.util.Optional;
 
 /**
@@ -39,9 +41,10 @@ public class AuctionClosingService {
     private final AuctionSseRegistry sseRegistry;
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
+    private final Clock paymentClock;
 
     @Transactional
-    public void closeOne(Long auctionId, LocalDateTime now) {
+    public void closeOne(Long auctionId, ZonedDateTime now) {
         Auction auction = auctionRepository.findByIdForUpdate(auctionId)
                 .orElseThrow(() -> new IllegalArgumentException("경매를 찾을 수 없습니다: " + auctionId));
 
@@ -49,7 +52,7 @@ public class AuctionClosingService {
             return; // 이미 처리됨
         }
 
-        auction.close(now);
+        auction.close(now.toLocalDateTime());
 
         Optional<Bid> winningBid = bidRepository.findTopBid(auctionId, Limit.of(1));
         winningBid.ifPresent(bid -> recordClosedEvent(auction, bid, now));
@@ -60,9 +63,10 @@ public class AuctionClosingService {
     }
 
     // 정산을 만들 때 필요한 값을 전부 이벤트에 담는다. 소비자는 이 값만 보고 정산을 만든다.
-    private void recordClosedEvent(Auction auction, Bid bid, LocalDateTime closedAt) {
+    private void recordClosedEvent(Auction auction, Bid bid, ZonedDateTime closedAt) {
+        LocalDateTime settlementClosedAt = closedAt.withZoneSameInstant(paymentClock.getZone()).toLocalDateTime();
         AuctionClosedMessage message = new AuctionClosedMessage(
-                auction.getId(), bid.getBidderId(), auction.getArtworkId(), auction.getCurrentPrice(), closedAt);
+                auction.getId(), bid.getBidderId(), auction.getArtworkId(), auction.getCurrentPrice(), settlementClosedAt);
 
         outboxEventRepository.save(
                 OutboxEvent.create(AuctionClosedMessage.TOPIC, String.valueOf(auction.getId()), toJson(message)));
