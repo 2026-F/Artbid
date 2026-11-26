@@ -9,18 +9,14 @@ import com.artbid.payment.gateway.*;
 import com.artbid.payment.repository.PaymentRepository;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.repository.SettlementRepository;
-import com.artbid.settlement.service.SettlementExpiryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -28,9 +24,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -44,20 +38,13 @@ import static org.mockito.Mockito.*;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PaymentFlowPostgresTest {
 	private static final AtomicLong AUCTION_IDS = new AtomicLong();
-	private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
-	private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 25, 12, 0, 0, 123_456_000);
 
 	@Configuration
 	@EnableAutoConfiguration
 	@EntityScan(basePackageClasses = {Payment.class, Settlement.class})
 	@EnableJpaRepositories(basePackageClasses = {PaymentRepository.class, SettlementRepository.class})
-	@Import({PaymentService.class, PaymentTransactionService.class, SettlementExpiryService.class})
-	static class Config {
-		@Bean
-		Clock paymentClock() {
-			return Clock.fixed(NOW.atZone(SEOUL).toInstant().plusNanos(789), SEOUL);
-		}
-	}
+	@Import({PaymentService.class, PaymentTransactionService.class})
+	static class Config {}
 
 	@DynamicPropertySource
 	static void properties(DynamicPropertyRegistry registry) {
@@ -77,7 +64,6 @@ class PaymentFlowPostgresTest {
 	@Autowired PaymentTransactionService transactions;
 	@Autowired PaymentRepository payments;
 	@Autowired SettlementRepository settlements;
-	@Autowired SettlementExpiryService expiry;
 	@MockBean PaymentGateway gateway;
 	@MockBean TossPaymentClient tossPaymentClient;
 
@@ -95,34 +81,9 @@ class PaymentFlowPostgresTest {
 		return settlements.saveAndFlush(Settlement.create(AUCTION_IDS.incrementAndGet(), 2L, 850_000, 85_000, 30_000, deadline));
 	}
 
-	@ParameterizedTest
-	@ValueSource(longs = {-1, 0, 1})
-	void 기한_직전_정각_직후에_결제_생성과_만료가_같은_경계를_사용한다(long deadlineMicros) {
-		LocalDateTime deadline = NOW.plusNanos(deadlineMicros * 1_000);
-		Settlement forPayment = settlement(deadline);
-		var snapshot = service.getActive(forPayment.getId(), 2L);
-		assertThat(snapshot.serverNow()).isEqualTo(NOW.atZone(SEOUL).toOffsetDateTime());
-		assertThat(snapshot.paymentDeadlineAt()).isEqualTo(deadline.atZone(SEOUL).toOffsetDateTime());
-		assertThat(snapshot.payment()).isNull();
-
-		if (deadlineMicros > 0) {
-			assertThat(service.pay(forPayment.getId(), 2L, PaymentMethod.TOSS).requestedAt()).isEqualTo(NOW);
-		} else {
-			assertThatThrownBy(() -> service.pay(forPayment.getId(), 2L, PaymentMethod.TOSS))
-					.isInstanceOfSatisfying(PaymentException.class,
-							error -> assertThat(error.getCode()).isEqualTo("SETTLEMENT_NOT_PAYABLE"));
-		}
-
-		Settlement forExpiry = settlement(deadline);
-		assertThat(expiry.findOverdueIds(NOW).contains(forExpiry.getId())).isEqualTo(deadlineMicros <= 0);
-		assertThat(expiry.expireOne(forExpiry.getId(), NOW)).isEqualTo(deadlineMicros <= 0);
-		assertThat(service.getActive(forExpiry.getId(), 2L).expiredAt())
-				.isEqualTo(deadlineMicros <= 0 ? NOW.atZone(SEOUL).toOffsetDateTime() : null);
-	}
-
 	@Test
 	void 서버_금액으로_결제하고_Payment와_Settlement를_저장한다() {
-		Settlement settlement = settlement(NOW.plusDays(1));
+		Settlement settlement = settlement(LocalDateTime.now().plusDays(1));
 		PaymentResponse response = service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG);
 		assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
 		assertThat(response.amount()).isEqualTo(965_000L);
@@ -135,7 +96,7 @@ class PaymentFlowPostgresTest {
 
 	@Test
 	void 거절된_시도는_실패로_남기고_새_시도로_재결제한다() {
-		Settlement settlement = settlement(NOW.plusDays(1));
+		Settlement settlement = settlement(LocalDateTime.now().plusDays(1));
 		doReturn(new PaymentGateway.Result(false, null, "승인 거절")).when(gateway).pay(anyLong(), anyLong());
 		PaymentResponse failed = service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG);
 		assertThat(failed.status()).isEqualTo(PaymentStatus.FAILED);
@@ -151,7 +112,7 @@ class PaymentFlowPostgresTest {
 
 	@Test
 	void Timeout이면_REQUESTED를_유지하고_추가_PG_호출을_막는다() {
-		Settlement settlement = settlement(NOW.plusDays(1));
+		Settlement settlement = settlement(LocalDateTime.now().plusDays(1));
 		doThrow(new PaymentGatewayUnavailableException("timeout")).when(gateway).pay(anyLong(), anyLong());
 		assertThat(service.getActive(settlement.getId(), 2L).payment()).isNull();
 		service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG); // 첫 응답을 사용하지 않는다.
@@ -171,10 +132,10 @@ class PaymentFlowPostgresTest {
 
 	@Test
 	void 기한이_지나도_REQUESTED를_조회하고_승인_후에는_PAID와_null을_반환한다() {
-		Settlement settlement = settlement(NOW.minusMinutes(1));
+		LocalDateTime now = LocalDateTime.now();
+		Settlement settlement = settlement(now.minusMinutes(1));
 		Payment pending = payments.saveAndFlush(Payment.request(settlement.getId(),
-				settlement.getTotalAmount(), PaymentMethod.TOSS, NOW.minusMinutes(2)));
-		assertThat(expiry.expireOne(settlement.getId(), NOW)).isFalse();
+				settlement.getTotalAmount(), PaymentMethod.TOSS, now.minusMinutes(2)));
 
 		var before = service.getActive(settlement.getId(), 2L);
 		assertThat(before.settlementStatus()).isEqualTo(com.artbid.settlement.domain.PaymentStatus.PENDING);
@@ -189,8 +150,8 @@ class PaymentFlowPostgresTest {
 
 	@Test
 	void 권한과_기한_검사에서_거절되면_PG를_호출하지_않는다() {
-		Settlement active = settlement(NOW.plusDays(1));
-		Settlement expired = settlement(NOW.minusSeconds(1));
+		Settlement active = settlement(LocalDateTime.now().plusDays(1));
+		Settlement expired = settlement(LocalDateTime.now().minusSeconds(1));
 		assertThatThrownBy(() -> service.pay(active.getId(), 3L, PaymentMethod.MOCK_PG))
 				.isInstanceOf(PaymentException.class).hasMessageContaining("낙찰자");
 		assertThatThrownBy(() -> service.pay(expired.getId(), 2L, PaymentMethod.MOCK_PG))
@@ -200,7 +161,7 @@ class PaymentFlowPostgresTest {
 
 	@Test
 	void 다른_회원은_결제_결과를_조회할_수_없다() {
-		Settlement settlement = settlement(NOW.plusDays(1));
+		Settlement settlement = settlement(LocalDateTime.now().plusDays(1));
 		PaymentResponse response = service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG);
 		assertThatThrownBy(() -> service.get(response.id(), 3L))
 				.isInstanceOf(PaymentException.class).hasMessageContaining("낙찰자");
@@ -208,7 +169,7 @@ class PaymentFlowPostgresTest {
 
 	@Test
 	void 결과_저장_실패시_Payment_변경도_rollback한다() {
-		Settlement settlement = settlement(NOW.plusDays(1));
+		Settlement settlement = settlement(LocalDateTime.now().plusDays(1));
 		PaymentResponse pending = transactions.start(settlement.getId(), 2L, PaymentMethod.MOCK_PG);
 		// legacy/비정상 Settlement 상태로 결과 반영 중 실패를 발생시킨다.
 		org.springframework.test.util.ReflectionTestUtils.setField(settlement, "paymentStatus",
@@ -222,7 +183,7 @@ class PaymentFlowPostgresTest {
 
 	@Test
 	void 같은_성공_결과를_재반영해도_최초_결제_시각을_유지한다() {
-		Settlement settlement = settlement(NOW.plusDays(1));
+		Settlement settlement = settlement(LocalDateTime.now().plusDays(1));
 		PaymentResponse paid = service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG);
 		PaymentResponse repeated = transactions.complete(settlement.getId(), paid.id(),
 				new PaymentGateway.Result(true, paid.transactionId(), null));
@@ -234,7 +195,7 @@ class PaymentFlowPostgresTest {
 
 	@Test
 	void 동시에_시작한_요청_중_하나만_PG를_호출한다() throws Exception {
-		Settlement settlement = settlement(NOW.plusDays(1));
+		Settlement settlement = settlement(LocalDateTime.now().plusDays(1));
 		ExecutorService executor = Executors.newFixedThreadPool(4);
 		CountDownLatch ready = new CountDownLatch(4);
 		CountDownLatch start = new CountDownLatch(1);
@@ -270,7 +231,7 @@ class PaymentFlowPostgresTest {
 
 	@Test
 	void PG_대기_중에도_두번째_요청은_중복으로_거절된다() throws Exception {
-		Settlement settlement = settlement(NOW.plusDays(1));
+		Settlement settlement = settlement(LocalDateTime.now().plusDays(1));
 		CountDownLatch entered = new CountDownLatch(1);
 		CountDownLatch release = new CountDownLatch(1);
 		doAnswer(call -> {

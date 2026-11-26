@@ -17,9 +17,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
-import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import static org.springframework.http.HttpStatus.*;
@@ -30,7 +28,6 @@ public class PaymentTransactionService {
 	private final SettlementRepository settlementRepository;
 	private final PaymentRepository paymentRepository;
 	private final ApplicationEventPublisher eventPublisher;
-	private final Clock paymentClock;
 
 	@Transactional
 	public PaymentResponse start(Long settlementId, Long memberId, PaymentMethod method) {
@@ -119,8 +116,7 @@ public class PaymentTransactionService {
 				.findFirstBySettlementIdAndStatusOrderByIdDesc(settlementId, PaymentStatus.REQUESTED)
 				.map(payment -> new ActivePaymentResponse.ActivePayment(payment.getId(), payment.getStatus()))
 				.orElse(null);
-		return new ActivePaymentResponse(settlement.getPaymentStatus(), offsetTime(settlement.getExpiredAt()),
-				offsetTime(settlement.getPaymentDeadlineAt()), offsetTime(databaseTime()), active);
+		return new ActivePaymentResponse(settlement.getPaymentStatus(), settlement.getExpiredAt(), active);
 	}
 
 	// 결제 완료 알림. 이 트랜잭션이 커밋된 뒤에 만들어지고, 실패해도 결제에는 영향이 없다(NotificationEventListener).
@@ -130,7 +126,7 @@ public class PaymentTransactionService {
 				NotificationType.PAYMENT_COMPLETED,
 				"결제가 완료되었습니다",
 				"낙찰 작품 결제가 완료되었습니다. 배송지를 입력해 주세요.",
-				"/mypage/orders"));
+				"/mypage"));
 	}
 
 	private Payment findPayment(Long paymentId) {
@@ -140,11 +136,7 @@ public class PaymentTransactionService {
 
 	private LocalDateTime databaseTime() {
 		// PostgreSQL timestamp 정밀도에 맞춰 최초 응답과 재조회 값이 같도록 한다.
-		return LocalDateTime.now(paymentClock).truncatedTo(ChronoUnit.MICROS);
-	}
-
-	private OffsetDateTime offsetTime(LocalDateTime time) {
-		return time == null ? null : time.atZone(paymentClock.getZone()).toOffsetDateTime();
+		return LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 	}
 
 	private void checkOwner(Settlement settlement, Long memberId) {

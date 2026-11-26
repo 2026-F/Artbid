@@ -11,7 +11,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
-import java.time.ZonedDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -49,14 +48,14 @@ class AuctionClosingSchedulerTest {
 
 		scheduler.closeEndedAuctions();
 
-		verify(auctionClosingService).closeOne(eq(1L), any(ZonedDateTime.class));
+		verify(auctionClosingService).closeOne(eq(1L), any(LocalDateTime.class));
 		verify(auctionLiveService).publishCurrent(1L, AuctionLiveReason.CLOSED);
 	}
 
 	@Test
 	void 마감에_실패한_경매는_실시간_상태를_알리지_않는다() {
 		when(auctionRepository.findEndedAuctions(any(LocalDateTime.class))).thenReturn(List.of(auction(1L), auction(2L)));
-		doThrow(new IllegalStateException("DB 오류")).when(auctionClosingService).closeOne(eq(1L), any(ZonedDateTime.class));
+		doThrow(new IllegalStateException("DB 오류")).when(auctionClosingService).closeOne(eq(1L), any(LocalDateTime.class));
 
 		scheduler.closeEndedAuctions();
 

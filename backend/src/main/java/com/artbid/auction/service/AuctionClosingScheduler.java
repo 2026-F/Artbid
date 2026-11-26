@@ -9,7 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.ZonedDateTime;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Slf4j
@@ -23,8 +23,8 @@ public class AuctionClosingScheduler {
 
     @Scheduled(fixedDelay = 10_000)
     public void closeEndedAuctions() {
-        ZonedDateTime now = ZonedDateTime.now();
-        List<Auction> ended = auctionRepository.findEndedAuctions(now.toLocalDateTime());
+        LocalDateTime now = LocalDateTime.now();
+        List<Auction> ended = auctionRepository.findEndedAuctions(now);
 
         for (Auction auction : ended) {
             try {

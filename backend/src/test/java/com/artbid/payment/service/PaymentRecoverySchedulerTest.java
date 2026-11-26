@@ -10,13 +10,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,13 +43,11 @@ class PaymentRecoverySchedulerTest {
     @Mock
     private TossPaymentClient tossPaymentClient;
 
+    @InjectMocks
     private PaymentRecoveryScheduler scheduler;
 
     @BeforeEach
     void setUp() {
-        ZoneId zone = ZoneId.of("Asia/Seoul");
-        Clock clock = Clock.fixed(NOW.atZone(zone).toInstant().plusNanos(999), zone);
-        scheduler = new PaymentRecoveryScheduler(paymentRepository, transactions, tossPaymentClient, clock);
         ReflectionTestUtils.setField(scheduler, "staleAfterMinutes", 15L);
     }
 
@@ -65,7 +62,7 @@ class PaymentRecoverySchedulerTest {
         when(paymentRepository.findTop50ByStatusAndRequestedAtBeforeOrderByIdAsc(PaymentStatus.REQUESTED, NOW.minusMinutes(15)))
                 .thenReturn(List.of());
 
-        scheduler.run();
+        scheduler.runOnce(NOW);
 
         verify(paymentRepository).findTop50ByStatusAndRequestedAtBeforeOrderByIdAsc(PaymentStatus.REQUESTED, NOW.minusMinutes(15));
     }
