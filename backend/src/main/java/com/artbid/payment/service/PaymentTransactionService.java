@@ -114,7 +114,7 @@ public class PaymentTransactionService {
 		checkOwner(settlement, memberId);
 		ActivePaymentResponse.ActivePayment active = paymentRepository
 				.findFirstBySettlementIdAndStatusOrderByIdDesc(settlementId, PaymentStatus.REQUESTED)
-				.map(payment -> new ActivePaymentResponse.ActivePayment(payment.getId(), payment.getStatus()))
+				.map(payment -> new ActivePaymentResponse.ActivePayment(payment.getId()))
 				.orElse(null);
 		return new ActivePaymentResponse(settlement.getPaymentStatus(), settlement.getExpiredAt(), active);
 	}

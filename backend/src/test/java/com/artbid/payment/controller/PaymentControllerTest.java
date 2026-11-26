@@ -93,13 +93,13 @@ class PaymentControllerTest {
 	void 활성_결제_조회는_검증된_토큰을_사용하고_응답을_캐시하지_않는다() throws Exception {
 		when(service.getActive(2L, 3L)).thenReturn(new ActivePaymentResponse(
 				com.artbid.settlement.domain.PaymentStatus.PENDING, null,
-				new ActivePaymentResponse.ActivePayment(1L, PaymentStatus.REQUESTED)));
+				new ActivePaymentResponse.ActivePayment(1L)));
 		mvc.perform(get(ACTIVE_URL).header("Authorization", "Bearer " + tokens.generateToken(3L, MemberRole.BIDDER)))
 				.andExpect(status().isOk())
 				.andExpect(header().string("Cache-Control", "no-store"))
 				.andExpect(jsonPath("$.settlementStatus").value("PENDING"))
 				.andExpect(jsonPath("$.payment.id").value(1))
-				.andExpect(jsonPath("$.payment.status").value("REQUESTED"))
+				.andExpect(jsonPath("$.payment.status").doesNotHaveJsonPath())
 				.andExpect(jsonPath("$.payment.amount").doesNotExist());
 	}
 

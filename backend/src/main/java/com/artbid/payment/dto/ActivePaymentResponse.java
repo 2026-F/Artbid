@@ -10,5 +10,5 @@ public record ActivePaymentResponse(
 		LocalDateTime expiredAt,
 		@JsonInclude(JsonInclude.Include.ALWAYS) ActivePayment payment) {
 
-	public record ActivePayment(Long id, com.artbid.payment.domain.PaymentStatus status) {}
+	public record ActivePayment(Long id) {}
 }

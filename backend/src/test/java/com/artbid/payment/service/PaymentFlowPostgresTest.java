@@ -118,7 +118,7 @@ class PaymentFlowPostgresTest {
 		service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG); // 첫 응답을 사용하지 않는다.
 		var active = service.getActive(settlement.getId(), 2L);
 		assertThat(active.settlementStatus()).isEqualTo(com.artbid.settlement.domain.PaymentStatus.PENDING);
-		assertThat(active.payment().status()).isEqualTo(PaymentStatus.REQUESTED);
+		assertThat(service.get(active.payment().id(), 2L).status()).isEqualTo(PaymentStatus.REQUESTED);
 		assertThat(service.get(active.payment().id(), 2L).settlementId()).isEqualTo(settlement.getId());
 		assertThatThrownBy(() -> service.getActive(settlement.getId(), 3L))
 				.isInstanceOfSatisfying(PaymentException.class, e -> assertThat(e.getCode()).isEqualTo("FORBIDDEN"));
