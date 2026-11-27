@@ -5,6 +5,7 @@ import com.artbid.notification.service.NotificationRequestedEvent;
 import com.artbid.payment.domain.Payment;
 import com.artbid.payment.domain.PaymentMethod;
 import com.artbid.payment.domain.PaymentStatus;
+import com.artbid.payment.dto.ActivePaymentResponse;
 import com.artbid.payment.dto.PaymentResponse;
 import com.artbid.payment.exception.PaymentException;
 import com.artbid.payment.gateway.PaymentGateway;
@@ -14,6 +15,7 @@ import com.artbid.settlement.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -102,6 +104,19 @@ public class PaymentTransactionService {
 				.orElseThrow(() -> new PaymentException(NOT_FOUND, "NOT_FOUND", "정산 내역이 없습니다."));
 		checkOwner(settlement, memberId);
 		return PaymentResponse.from(payment);
+	}
+
+	// 승인 커밋이 두 SELECT 사이에 일어나도 정산과 결제를 같은 스냅샷에서 읽는다.
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	public ActivePaymentResponse getActive(Long settlementId, Long memberId) {
+		Settlement settlement = settlementRepository.findById(settlementId)
+				.orElseThrow(() -> new PaymentException(NOT_FOUND, "NOT_FOUND", "정산 내역이 없습니다."));
+		checkOwner(settlement, memberId);
+		ActivePaymentResponse.ActivePayment active = paymentRepository
+				.findFirstBySettlementIdAndStatusOrderByIdDesc(settlementId, PaymentStatus.REQUESTED)
+				.map(payment -> new ActivePaymentResponse.ActivePayment(payment.getId()))
+				.orElse(null);
+		return new ActivePaymentResponse(settlement.getPaymentStatus(), settlement.getExpiredAt(), active);
 	}
 
 	// 결제 완료 알림. 이 트랜잭션이 커밋된 뒤에 만들어지고, 실패해도 결제에는 영향이 없다(NotificationEventListener).

@@ -4,7 +4,6 @@ import com.artbid.payment.domain.Payment;
 import com.artbid.payment.domain.PaymentStatus;
 import java.util.Collection;
 import org.springframework.data.jpa.repository.JpaRepository;
-import com.artbid.payment.domain.PaymentStatus;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -14,6 +13,8 @@ import java.util.Optional;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
 	boolean existsBySettlementIdAndStatusIn(Long settlementId, Collection<PaymentStatus> statuses);
+
+	Optional<Payment> findFirstBySettlementIdAndStatusOrderByIdDesc(Long settlementId, PaymentStatus status);
 
 	// 복구 대상: 요청된 지 오래된 결과 불명 결제. 한 번에 50건씩만 처리한다.
 	List<Payment> findTop50ByStatusAndRequestedAtBeforeOrderByIdAsc(PaymentStatus status, LocalDateTime before);

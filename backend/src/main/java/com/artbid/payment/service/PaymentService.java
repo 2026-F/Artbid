@@ -2,6 +2,7 @@ package com.artbid.payment.service;
 
 import com.artbid.payment.domain.PaymentMethod;
 import com.artbid.payment.domain.PaymentStatus;
+import com.artbid.payment.dto.ActivePaymentResponse;
 import com.artbid.payment.dto.PaymentResponse;
 import com.artbid.payment.exception.PaymentException;
 import com.artbid.payment.gateway.PaymentGateway;
@@ -12,7 +13,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import com.artbid.payment.domain.PaymentMethod;
 import java.util.Optional;
 
 @Service
@@ -97,5 +97,9 @@ public class PaymentService {
 
 	public PaymentResponse get(Long paymentId, Long memberId) {
 		return transactions.get(paymentId, memberId);
+	}
+
+	public ActivePaymentResponse getActive(Long settlementId, Long memberId) {
+		return transactions.getActive(settlementId, memberId);
 	}
 }

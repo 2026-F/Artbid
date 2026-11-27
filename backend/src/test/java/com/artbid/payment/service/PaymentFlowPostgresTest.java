@@ -27,6 +27,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -36,6 +37,8 @@ import static org.mockito.Mockito.*;
 @SpringBootTest(classes = PaymentFlowPostgresTest.Config.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PaymentFlowPostgresTest {
+	private static final AtomicLong AUCTION_IDS = new AtomicLong();
+
 	@Configuration
 	@EnableAutoConfiguration
 	@EntityScan(basePackageClasses = {Payment.class, Settlement.class})
@@ -62,6 +65,7 @@ class PaymentFlowPostgresTest {
 	@Autowired PaymentRepository payments;
 	@Autowired SettlementRepository settlements;
 	@MockBean PaymentGateway gateway;
+	@MockBean TossPaymentClient tossPaymentClient;
 
 	@BeforeEach
 	void setup() {
@@ -74,7 +78,7 @@ class PaymentFlowPostgresTest {
 	}
 
 	private Settlement settlement(LocalDateTime deadline) {
-		return settlements.saveAndFlush(Settlement.create(1L, 2L, 850_000, 85_000, 30_000, deadline));
+		return settlements.saveAndFlush(Settlement.create(AUCTION_IDS.incrementAndGet(), 2L, 850_000, 85_000, 30_000, deadline));
 	}
 
 	@Test
@@ -84,6 +88,7 @@ class PaymentFlowPostgresTest {
 		assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
 		assertThat(response.amount()).isEqualTo(965_000L);
 		assertThat(service.get(response.id(), 2L).paidAt()).isNotNull();
+		assertThat(service.getActive(settlement.getId(), 2L).payment()).isNull();
 		assertThat(settlements.findById(settlement.getId()).orElseThrow().getPaymentStatus())
 				.isEqualTo(com.artbid.settlement.domain.PaymentStatus.PAID);
 		verify(gateway).pay(response.id(), 965_000L);
@@ -95,6 +100,7 @@ class PaymentFlowPostgresTest {
 		doReturn(new PaymentGateway.Result(false, null, "승인 거절")).when(gateway).pay(anyLong(), anyLong());
 		PaymentResponse failed = service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG);
 		assertThat(failed.status()).isEqualTo(PaymentStatus.FAILED);
+		assertThat(service.getActive(settlement.getId(), 2L).payment()).isNull();
 		assertThat(settlements.findById(settlement.getId()).orElseThrow().getPaymentStatus())
 				.isEqualTo(com.artbid.settlement.domain.PaymentStatus.PENDING);
 		doReturn(new PaymentGateway.Result(true, "retry_txn", null)).when(gateway).pay(anyLong(), anyLong());
@@ -108,11 +114,38 @@ class PaymentFlowPostgresTest {
 	void Timeout이면_REQUESTED를_유지하고_추가_PG_호출을_막는다() {
 		Settlement settlement = settlement(LocalDateTime.now().plusDays(1));
 		doThrow(new PaymentGatewayUnavailableException("timeout")).when(gateway).pay(anyLong(), anyLong());
-		PaymentResponse pending = service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG);
-		assertThat(service.get(pending.id(), 2L).status()).isEqualTo(PaymentStatus.REQUESTED);
+		assertThat(service.getActive(settlement.getId(), 2L).payment()).isNull();
+		service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG); // 첫 응답을 사용하지 않는다.
+		var active = service.getActive(settlement.getId(), 2L);
+		assertThat(active.settlementStatus()).isEqualTo(com.artbid.settlement.domain.PaymentStatus.PENDING);
+		assertThat(service.get(active.payment().id(), 2L).status()).isEqualTo(PaymentStatus.REQUESTED);
+		assertThat(service.get(active.payment().id(), 2L).settlementId()).isEqualTo(settlement.getId());
+		assertThatThrownBy(() -> service.getActive(settlement.getId(), 3L))
+				.isInstanceOfSatisfying(PaymentException.class, e -> assertThat(e.getCode()).isEqualTo("FORBIDDEN"));
+		assertThatThrownBy(() -> service.getActive(Long.MAX_VALUE, 2L))
+				.isInstanceOfSatisfying(PaymentException.class, e -> assertThat(e.getCode()).isEqualTo("NOT_FOUND"));
 		assertThatThrownBy(() -> service.pay(settlement.getId(), 2L, PaymentMethod.MOCK_PG))
 				.isInstanceOf(PaymentException.class).hasMessageContaining("진행 중");
+		assertThat(service.getActive(settlement.getId(), 2L).payment().id()).isEqualTo(active.payment().id());
 		verify(gateway, times(1)).pay(anyLong(), anyLong());
+	}
+
+	@Test
+	void 기한이_지나도_REQUESTED를_조회하고_승인_후에는_PAID와_null을_반환한다() {
+		LocalDateTime now = LocalDateTime.now();
+		Settlement settlement = settlement(now.minusMinutes(1));
+		Payment pending = payments.saveAndFlush(Payment.request(settlement.getId(),
+				settlement.getTotalAmount(), PaymentMethod.TOSS, now.minusMinutes(2)));
+
+		var before = service.getActive(settlement.getId(), 2L);
+		assertThat(before.settlementStatus()).isEqualTo(com.artbid.settlement.domain.PaymentStatus.PENDING);
+		assertThat(before.payment().id()).isEqualTo(pending.getId());
+
+		transactions.complete(settlement.getId(), pending.getId(), new PaymentGateway.Result(true, "txn_due", null));
+		var after = service.getActive(settlement.getId(), 2L);
+		assertThat(after.settlementStatus()).isEqualTo(com.artbid.settlement.domain.PaymentStatus.PAID);
+		assertThat(after.payment()).isNull();
+		verifyNoInteractions(gateway, tossPaymentClient);
 	}
 
 	@Test
