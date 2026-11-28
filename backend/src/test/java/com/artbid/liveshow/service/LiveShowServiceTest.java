@@ -24,7 +24,10 @@ import com.artbid.member.repository.MemberRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
+import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionSystemException;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -52,6 +55,7 @@ class LiveShowServiceTest {
 	private ArtworkRepository artworkRepository;
 	private IvsStageClient ivsStageClient;
 	private ApplicationEventPublisher eventPublisher;
+	private PlatformTransactionManager transactionManager;
 	private LiveShowService service;
 
 	private final Map<Long, Auction> auctions = new java.util.HashMap<>();
@@ -66,8 +70,9 @@ class LiveShowServiceTest {
 		MemberRepository memberRepository = mock(MemberRepository.class);
 		ivsStageClient = mock(IvsStageClient.class);
 		eventPublisher = mock(ApplicationEventPublisher.class);
+		transactionManager = mock(PlatformTransactionManager.class);
 		service = new LiveShowService(showRepository, lotRepository, auctionRepository, artworkRepository,
-				memberRepository, ivsStageClient, eventPublisher);
+				memberRepository, ivsStageClient, eventPublisher, transactionManager);
 
 		when(auctionRepository.findAllById(anyCollection())).thenAnswer(invocation -> select(auctions, invocation.getArgument(0)));
 		when(artworkRepository.findAllById(anyCollection())).thenAnswer(invocation -> select(artworks, invocation.getArgument(0)));
@@ -120,6 +125,7 @@ class LiveShowServiceTest {
 		if (status != LiveShowStatus.SCHEDULED) {
 			show.start("arn:stage", LocalDateTime.now());
 		}
+		when(showRepository.findById(SHOW_ID)).thenReturn(Optional.of(show));
 		when(showRepository.findByIdForUpdate(SHOW_ID)).thenReturn(Optional.of(show));
 		return show;
 	}
@@ -316,6 +322,96 @@ class LiveShowServiceTest {
 		service.end(SHOW_ID, HOST_ID);
 
 		assertThatThrownBy(() -> service.start(SHOW_ID, HOST_ID)).isInstanceOf(LiveShowConflictException.class);
+		assertThat(show.getStatus()).isEqualTo(LiveShowStatus.ENDED);
+	}
+
+	// ---- IVS 호출과 트랜잭션 ----
+
+	@Test
+	void 시작은_스테이지를_트랜잭션_밖에서_만든_뒤_짧은_트랜잭션으로_반영한다() {
+		liveShow(LiveShowStatus.SCHEDULED);
+		lots();
+		when(ivsStageClient.createShowStage(SHOW_ID)).thenReturn("arn:stage");
+
+		service.start(SHOW_ID, HOST_ID);
+
+		InOrder order = inOrder(ivsStageClient, transactionManager, showRepository);
+		order.verify(ivsStageClient).createShowStage(SHOW_ID);
+		order.verify(transactionManager).getTransaction(any());
+		order.verify(showRepository).findByIdForUpdate(SHOW_ID);
+		order.verify(transactionManager).commit(any());
+		verify(ivsStageClient, never()).deleteStageIfExists(any());
+	}
+
+	@Test
+	void 스테이지를_만드는_사이_다른_요청이_먼저_시작하면_만든_스테이지를_지운다() {
+		LiveShow show = liveShow(LiveShowStatus.SCHEDULED);
+		lots();
+		when(ivsStageClient.createShowStage(SHOW_ID)).thenAnswer(invocation -> {
+			show.start("arn:other", LocalDateTime.now());
+			return "arn:mine";
+		});
+
+		assertThatThrownBy(() -> service.start(SHOW_ID, HOST_ID)).isInstanceOf(LiveShowConflictException.class);
+
+		verify(ivsStageClient).deleteStageIfExists("arn:mine");
+		verify(ivsStageClient, never()).deleteStageIfExists("arn:other");
+		verify(transactionManager).rollback(any());
+	}
+
+	@Test
+	void 시작_커밋이_실패하면_만든_스테이지를_지운다() {
+		liveShow(LiveShowStatus.SCHEDULED);
+		lots();
+		when(ivsStageClient.createShowStage(SHOW_ID)).thenReturn("arn:stage");
+		doThrow(new TransactionSystemException("commit failed")).when(transactionManager).commit(any());
+
+		assertThatThrownBy(() -> service.start(SHOW_ID, HOST_ID)).isInstanceOf(TransactionSystemException.class);
+
+		verify(ivsStageClient).deleteStageIfExists("arn:stage");
+	}
+
+	@Test
+	void 시작_전이_아니면_스테이지를_만들지_않는다() {
+		liveShow(LiveShowStatus.LIVE);
+
+		assertThatThrownBy(() -> service.start(SHOW_ID, HOST_ID)).isInstanceOf(LiveShowConflictException.class);
+
+		verifyNoInteractions(ivsStageClient, transactionManager);
+	}
+
+	@Test
+	void 종료는_커밋한_뒤에_스테이지를_지운다() {
+		liveShow(LiveShowStatus.LIVE);
+		lots();
+
+		service.end(SHOW_ID, HOST_ID);
+
+		InOrder order = inOrder(transactionManager, ivsStageClient);
+		order.verify(transactionManager).commit(any());
+		order.verify(ivsStageClient).deleteStageIfExists("arn:stage");
+	}
+
+	@Test
+	void 종료_커밋이_실패하면_스테이지를_지우지_않는다() {
+		liveShow(LiveShowStatus.LIVE);
+		lots();
+		doThrow(new TransactionSystemException("commit failed")).when(transactionManager).commit(any());
+
+		assertThatThrownBy(() -> service.end(SHOW_ID, HOST_ID)).isInstanceOf(TransactionSystemException.class);
+
+		verifyNoInteractions(ivsStageClient);
+	}
+
+	@Test
+	void 스테이지_삭제가_실패해도_종료_결과를_돌려준다() {
+		LiveShow show = liveShow(LiveShowStatus.LIVE);
+		lots();
+		doThrow(new RuntimeException("aws down")).when(ivsStageClient).deleteStageIfExists("arn:stage");
+
+		DetailResponse response = service.end(SHOW_ID, HOST_ID);
+
+		assertThat(response.status()).isEqualTo(LiveShowStatus.ENDED);
 		assertThat(show.getStatus()).isEqualTo(LiveShowStatus.ENDED);
 	}
 }

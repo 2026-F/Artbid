@@ -27,10 +27,13 @@ import com.artbid.member.domain.Member;
 import com.artbid.member.domain.MemberRole;
 import com.artbid.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -44,6 +47,7 @@ import java.util.stream.Collectors;
  * - 마감: 기존 경매 규칙(마감 30초 이내 입찰 시 30초 연장, 스케줄러 마감)을 그대로 쓴다.
  * 권한은 요청 본문이 아니라 서버가 검증한 회원 ID와 역할로만 판단한다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class LiveShowService {
@@ -57,6 +61,7 @@ public class LiveShowService {
 	private final MemberRepository memberRepository;
 	private final IvsStageClient ivsStageClient;
 	private final ApplicationEventPublisher eventPublisher;
+	private final PlatformTransactionManager transactionManager;
 
 	@Transactional
 	public DetailResponse create(Long hostId, MemberRole role, CreateRequest request) {
@@ -149,15 +154,31 @@ public class LiveShowService {
 		}).toList();
 	}
 
-	/** 진행자가 방송을 시작한다. IVS 스테이지를 만든다. 작품은 따로 열어야 입찰이 시작된다. */
-	@Transactional
+	/**
+	 * 진행자가 방송을 시작한다. IVS 스테이지를 만든다. 작품은 따로 열어야 입찰이 시작된다.
+	 * AWS 호출은 트랜잭션 밖에서 한다. 응답을 기다리는 동안 DB 커넥션과 라이브 행 잠금을 쥐지 않기 위해서다.
+	 * 1) 잠금 없이 진행자와 상태를 확인한다. 권한 없는 요청으로 유료 스테이지를 만들지 않는다.
+	 * 2) 스테이지를 만든다.
+	 * 3) 짧은 트랜잭션에서 행을 잠그고 다시 확인한 뒤 LIVE로 바꾼다.
+	 * 3)이 실패하면(동시 시작 요청, 커밋 실패 등) 만든 스테이지를 지워 고아 스테이지를 남기지 않는다.
+	 */
 	public DetailResponse start(Long showId, Long memberId) {
-		LiveShow show = lockAsHost(showId, memberId);
-		if (show.getStatus() != LiveShowStatus.SCHEDULED) {
-			throw new LiveShowConflictException("시작 전 라이브만 시작할 수 있습니다. 현재 상태: " + show.getStatus());
+		LiveShow snapshot = showRepository.findById(showId).orElseThrow(() -> new LiveShowNotFoundException(showId));
+		requireHost(snapshot, memberId);
+		requireScheduled(snapshot);
+
+		String stageArn = ivsStageClient.createShowStage(showId);
+		try {
+			return writeTransaction().execute(status -> {
+				LiveShow show = lockAsHost(showId, memberId);
+				requireScheduled(show);
+				show.start(stageArn, LocalDateTime.now());
+				return toDetail(show, lotRepository.findByShowIdOrderByLotNo(showId));
+			});
+		} catch (RuntimeException e) {
+			deleteStageQuietly(stageArn, showId);
+			throw e;
 		}
-		show.start(ivsStageClient.createShowStage(showId), LocalDateTime.now());
-		return toDetail(show, lotRepository.findByShowIdOrderByLotNo(showId));
 	}
 
 	/**
@@ -209,32 +230,65 @@ public class LiveShowService {
 	}
 
 	/**
-	 * 진행자가 방송을 끝낸다. 스테이지를 지우고, 열지 않은 작품은 편성에서 빼서 다른 라이브에 다시 넣을 수 있게 한다.
+	 * 진행자가 방송을 끝낸다. 열지 않은 작품은 편성에서 빼서 다른 라이브에 다시 넣을 수 있게 한다.
 	 * 입찰 중인 작품이 있으면 그 경매는 원래 마감 시각까지 계속 입찰을 받는다.
+	 * 스테이지는 ENDED 커밋 뒤 트랜잭션 밖에서 지운다. 먼저 지우고 롤백되면 스테이지 없는 LIVE 라이브가 남기 때문이다.
+	 * 삭제가 실패해도 라이브는 끝난 상태로 두고 오류 로그를 남긴다.
 	 */
-	@Transactional
 	public DetailResponse end(Long showId, Long memberId) {
-		LiveShow show = lockAsHost(showId, memberId);
-		if (!show.isLive()) {
-			throw new LiveShowConflictException("진행 중인 라이브만 종료할 수 있습니다. 현재 상태: " + show.getStatus());
+		EndResult result = writeTransaction().execute(status -> {
+			LiveShow show = lockAsHost(showId, memberId);
+			if (!show.isLive()) {
+				throw new LiveShowConflictException("진행 중인 라이브만 종료할 수 있습니다. 현재 상태: " + show.getStatus());
+			}
+			show.end(LocalDateTime.now());
+
+			List<LiveShowLot> lots = lotRepository.findByShowIdOrderByLotNo(showId);
+			List<LiveShowLot> waiting = lots.stream().filter(lot -> lot.getStatus() == LotStatus.WAITING).toList();
+			lotRepository.deleteAll(waiting);
+
+			List<LiveShowLot> remaining = lots.stream().filter(lot -> lot.getStatus() != LotStatus.WAITING).toList();
+			return new EndResult(show.getStageArn(), toDetail(show, remaining));
+		});
+		deleteStageQuietly(result.stageArn(), showId);
+		return result.detail();
+	}
+
+	private record EndResult(String stageArn, DetailResponse detail) {
+	}
+
+	private TransactionTemplate writeTransaction() {
+		return new TransactionTemplate(transactionManager);
+	}
+
+	/** 스테이지 삭제 실패가 원래 결과나 예외를 가리지 않게 한다. 남은 스테이지는 로그의 라이브 ID로 찾아 정리한다. */
+	private void deleteStageQuietly(String stageArn, Long showId) {
+		if (stageArn == null) {
+			return;
 		}
-		ivsStageClient.deleteStageIfExists(show.getStageArn());
-		show.end(LocalDateTime.now());
-
-		List<LiveShowLot> lots = lotRepository.findByShowIdOrderByLotNo(showId);
-		List<LiveShowLot> waiting = lots.stream().filter(lot -> lot.getStatus() == LotStatus.WAITING).toList();
-		lotRepository.deleteAll(waiting);
-
-		List<LiveShowLot> remaining = lots.stream().filter(lot -> lot.getStatus() != LotStatus.WAITING).toList();
-		return toDetail(show, remaining);
+		try {
+			ivsStageClient.deleteStageIfExists(stageArn);
+		} catch (RuntimeException e) {
+			log.error("[LiveShow] IVS 스테이지 삭제 실패, 수동 정리 필요: liveShowId={}", showId, e);
+		}
 	}
 
 	private LiveShow lockAsHost(Long showId, Long memberId) {
 		LiveShow show = showRepository.findByIdForUpdate(showId).orElseThrow(() -> new LiveShowNotFoundException(showId));
+		requireHost(show, memberId);
+		return show;
+	}
+
+	private void requireHost(LiveShow show, Long memberId) {
 		if (!show.isHost(memberId)) {
 			throw new LiveShowAccessDeniedException("이 라이브의 진행자만 할 수 있습니다.");
 		}
-		return show;
+	}
+
+	private void requireScheduled(LiveShow show) {
+		if (show.getStatus() != LiveShowStatus.SCHEDULED) {
+			throw new LiveShowConflictException("시작 전 라이브만 시작할 수 있습니다. 현재 상태: " + show.getStatus());
+		}
 	}
 
 	private LiveShowLot currentLot(LiveShow show, List<LiveShowLot> lots) {
