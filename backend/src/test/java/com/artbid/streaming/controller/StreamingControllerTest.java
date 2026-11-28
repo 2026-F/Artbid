@@ -1,6 +1,8 @@
 package com.artbid.streaming.controller;
 
 import com.artbid.common.exception.GlobalExceptionHandler;
+import com.artbid.member.auth.JwtAuthenticationFilter;
+import com.artbid.member.domain.MemberRole;
 import com.artbid.streaming.domain.Livestream;
 import com.artbid.streaming.dto.StageTokenResponse;
 import com.artbid.streaming.exception.InvalidStreamTransitionException;
@@ -49,9 +51,9 @@ class StreamingControllerTest {
 
 	@Test
 	void 방송을_시작하면_201과_상태를_돌려주고_stageArn은_숨긴다() throws Exception {
-		when(service.startStream(1L)).thenReturn(live(1L));
+		when(service.startStream(1L, 5L, MemberRole.CONSIGNOR)).thenReturn(live(1L));
 
-		mvc.perform(post("/api/auctions/1/stream/start"))
+		mvc.perform(post("/api/auctions/1/stream/start").principal(CONSIGNOR).requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.CONSIGNOR))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.auctionId").value(1))
 				.andExpect(jsonPath("$.status").value("LIVE"))
@@ -60,27 +62,61 @@ class StreamingControllerTest {
 
 	@Test
 	void 이미_방송_중이면_409() throws Exception {
-		when(service.startStream(1L)).thenThrow(new LivestreamAlreadyLiveException(1L));
+		when(service.startStream(1L, 5L, MemberRole.CONSIGNOR)).thenThrow(new LivestreamAlreadyLiveException(1L));
 
-		mvc.perform(post("/api/auctions/1/stream/start"))
+		mvc.perform(post("/api/auctions/1/stream/start").principal(CONSIGNOR).requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.CONSIGNOR))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("LIVESTREAM_ALREADY_LIVE"));
 	}
 
 	@Test
 	void AWS_호출이_실패하면_502() throws Exception {
-		when(service.startStream(1L)).thenThrow(SdkException.builder().message("no credentials").build());
+		when(service.startStream(1L, 5L, MemberRole.CONSIGNOR)).thenThrow(SdkException.builder().message("no credentials").build());
 
-		mvc.perform(post("/api/auctions/1/stream/start"))
+		mvc.perform(post("/api/auctions/1/stream/start").principal(CONSIGNOR).requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.CONSIGNOR))
 				.andExpect(status().isBadGateway())
 				.andExpect(jsonPath("$.code").value("IVS_UNAVAILABLE"));
 	}
 
 	@Test
 	void 방송을_종료하면_204() throws Exception {
-		mvc.perform(post("/api/auctions/1/stream/end"))
+		mvc.perform(post("/api/auctions/1/stream/end").principal(CONSIGNOR).requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.CONSIGNOR))
 				.andExpect(status().isNoContent());
-		verify(service).endStream(1L);
+		verify(service).endStream(1L, 5L, MemberRole.CONSIGNOR);
+	}
+
+	@Test
+	void 비로그인으로_방송을_시작하거나_종료하면_401() throws Exception {
+		mvc.perform(post("/api/auctions/1/stream/start"))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.code").value("STREAMING_AUTH_REQUIRED"));
+		mvc.perform(post("/api/auctions/1/stream/end"))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.code").value("STREAMING_AUTH_REQUIRED"));
+		verifyNoInteractions(service);
+	}
+
+	@Test
+	void 위탁자가_아니면_방송_시작과_종료가_403() throws Exception {
+		Principal other = () -> "6";
+		when(service.startStream(1L, 6L, MemberRole.BIDDER)).thenThrow(new StreamingAccessDeniedException(1L));
+		doThrow(new StreamingAccessDeniedException(1L)).when(service).endStream(1L, 6L, MemberRole.BIDDER);
+
+		mvc.perform(post("/api/auctions/1/stream/start").principal(other)
+						.requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.BIDDER))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.code").value("STREAMING_ACCESS_DENIED"));
+		mvc.perform(post("/api/auctions/1/stream/end").principal(other)
+						.requestAttr(JwtAuthenticationFilter.ROLE_ATTRIBUTE, MemberRole.BIDDER))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.code").value("STREAMING_ACCESS_DENIED"));
+	}
+
+	@Test
+	void 역할은_요청_헤더가_아니라_JWT_필터가_넣은_값만_쓴다() throws Exception {
+		mvc.perform(post("/api/auctions/1/stream/end").principal(() -> "6").header("X-Role", "ADMIN"))
+				.andExpect(status().isNoContent());
+		verify(service).endStream(1L, 6L, null);
 	}
 
 	@Test
