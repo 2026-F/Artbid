@@ -5,6 +5,7 @@ import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.domain.Auction;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.infra.streaming.IvsStageClient;
+import com.artbid.member.domain.MemberRole;
 import com.artbid.streaming.config.StreamReconnectProperties;
 import com.artbid.streaming.domain.Livestream;
 import com.artbid.streaming.domain.LivestreamStatus;
@@ -32,9 +33,11 @@ public class StreamingService {
 	 * 경매의 IVS 스테이지를 새로 만들고 ARN을 저장한다.
 	 * 이미 LIVE 상태면 막고, 한 번 끝난(ENDED) 적 있는 경매거나 처음 시작하는 경매면
 	 * (기존 행을 재사용하거나 새로 만들어) 새 스테이지를 발급한다.
+	 * 이 경매 작품의 위탁자나 관리자만 시작할 수 있다. 확인은 유료 스테이지를 만들기 전에 한다.
 	 */
 	@Transactional
-	public Livestream startStream(Long auctionId) {
+	public Livestream startStream(Long auctionId, Long requesterId, MemberRole requesterRole) {
+		requireConsignorOrAdmin(auctionId, requesterId, requesterRole);
 		Livestream livestream = livestreamRepository.findByAuctionId(auctionId)
 				.orElseGet(() -> Livestream.builder().auctionId(auctionId).build());
 
@@ -51,9 +54,11 @@ public class StreamingService {
 	/**
 	 * 방송 종료: 스테이지를 삭제해 참여자 연결을 모두 끊고 상태를 ENDED로 바꾼다.
 	 * 이미 끝난 방송에 다시 호출되면 아무것도 하지 않는다(중복 호출에도 안전).
+	 * 이 경매 작품의 위탁자나 관리자만 종료할 수 있다.
 	 */
 	@Transactional
-	public void endStream(Long auctionId) {
+	public void endStream(Long auctionId, Long requesterId, MemberRole requesterRole) {
+		requireConsignorOrAdmin(auctionId, requesterId, requesterRole);
 		Livestream livestream = getStream(auctionId);
 		if (!livestream.isLive()) {
 			return;
@@ -103,6 +108,14 @@ public class StreamingService {
 				livestream.markEnded(LocalDateTime.now());
 			}
 		}
+	}
+
+	/** 관리자는 모든 경매의 방송을 켜고 끌 수 있다. 그 외에는 위탁자 본인만 허용한다. */
+	private void requireConsignorOrAdmin(Long auctionId, Long requesterId, MemberRole requesterRole) {
+		if (requesterId != null && requesterRole == MemberRole.ADMIN) {
+			return;
+		}
+		requireConsignor(auctionId, requesterId);
 	}
 
 	/** 이 경매의 위탁 작품을 올린 본인인지 확인한다. 아니면(비로그인 포함) 403으로 막는다. */

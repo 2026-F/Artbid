@@ -6,6 +6,7 @@ import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.domain.Auction;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.infra.streaming.IvsStageClient;
+import com.artbid.member.domain.MemberRole;
 import com.artbid.streaming.config.StreamReconnectProperties;
 import com.artbid.streaming.domain.Livestream;
 import com.artbid.streaming.domain.LivestreamStatus;
@@ -47,6 +48,49 @@ class StreamingServiceTest {
 		streamingService = new StreamingService(
 				livestreamRepository, auctionRepository, artworkRepository, ivsStageClient, reconnectProperties);
 		when(livestreamRepository.save(any(Livestream.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		// 경매 1의 위탁자는 회원 5. 시작/종료 테스트는 위탁자 본인으로 호출한다.
+		givenConsignor(1L, 10L, 5L);
+	}
+
+	@Test
+	void 위탁자가_아니면_방송을_시작하지_못하고_스테이지도_만들지_않는다() {
+		assertThatThrownBy(() -> streamingService.startStream(1L, 6L, MemberRole.CONSIGNOR))
+				.isInstanceOf(StreamingAccessDeniedException.class);
+		assertThatThrownBy(() -> streamingService.startStream(1L, null, null))
+				.isInstanceOf(StreamingAccessDeniedException.class);
+		verifyNoInteractions(ivsStageClient);
+		verify(livestreamRepository, never()).save(any());
+	}
+
+	@Test
+	void 위탁자가_아니면_방송을_종료하지_못한다() {
+		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(liveStream(1L, "arn:stage-1")));
+
+		assertThatThrownBy(() -> streamingService.endStream(1L, 6L, MemberRole.BIDDER))
+				.isInstanceOf(StreamingAccessDeniedException.class);
+		verifyNoInteractions(ivsStageClient);
+	}
+
+	@Test
+	void 관리자는_남의_경매_방송도_시작하고_종료할_수_있다() {
+		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.empty());
+		when(ivsStageClient.createStage(1L)).thenReturn("arn:stage-1");
+		Livestream started = streamingService.startStream(1L, 99L, MemberRole.ADMIN);
+		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(started));
+
+		streamingService.endStream(1L, 99L, MemberRole.ADMIN);
+
+		assertThat(started.getStatus()).isEqualTo(LivestreamStatus.ENDED);
+		verify(ivsStageClient).deleteStageIfExists("arn:stage-1");
+	}
+
+	@Test
+	void 없는_경매는_관리자가_아니면_403이다() {
+		when(auctionRepository.findById(404L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> streamingService.startStream(404L, 5L, MemberRole.CONSIGNOR))
+				.isInstanceOf(StreamingAccessDeniedException.class);
+		verifyNoInteractions(ivsStageClient);
 	}
 
 	/** auctionId의 위탁자가 consignorId인 Auction/Artwork 조회 체인을 이어준다. */
@@ -70,7 +114,7 @@ class StreamingServiceTest {
 		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.empty());
 		when(ivsStageClient.createStage(1L)).thenReturn("arn:stage-1");
 
-		Livestream result = streamingService.startStream(1L);
+		Livestream result = streamingService.startStream(1L, 5L, MemberRole.CONSIGNOR);
 
 		assertThat(result.getAuctionId()).isEqualTo(1L);
 		assertThat(result.getStageArn()).isEqualTo("arn:stage-1");
@@ -83,7 +127,7 @@ class StreamingServiceTest {
 	void 이미_방송_중이면_스테이지를_새로_만들지_않고_막는다() {
 		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(liveStream(1L, "arn:stage-1")));
 
-		assertThatThrownBy(() -> streamingService.startStream(1L))
+		assertThatThrownBy(() -> streamingService.startStream(1L, 5L, MemberRole.CONSIGNOR))
 				.isInstanceOf(LivestreamAlreadyLiveException.class);
 		verify(ivsStageClient, never()).createStage(anyLong());
 	}
@@ -95,7 +139,7 @@ class StreamingServiceTest {
 		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(ended));
 		when(ivsStageClient.createStage(1L)).thenReturn("arn:stage-2");
 
-		Livestream result = streamingService.startStream(1L);
+		Livestream result = streamingService.startStream(1L, 5L, MemberRole.CONSIGNOR);
 
 		assertThat(result).isSameAs(ended);
 		assertThat(result.getStageArn()).isEqualTo("arn:stage-2");
@@ -107,7 +151,7 @@ class StreamingServiceTest {
 		Livestream live = liveStream(1L, "arn:stage-1");
 		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(live));
 
-		streamingService.endStream(1L);
+		streamingService.endStream(1L, 5L, MemberRole.CONSIGNOR);
 
 		verify(ivsStageClient).deleteStageIfExists("arn:stage-1");
 		assertThat(live.getStatus()).isEqualTo(LivestreamStatus.ENDED);
@@ -120,7 +164,7 @@ class StreamingServiceTest {
 		ended.markEnded(LocalDateTime.now());
 		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.of(ended));
 
-		streamingService.endStream(1L);
+		streamingService.endStream(1L, 5L, MemberRole.CONSIGNOR);
 
 		verifyNoInteractions(ivsStageClient);
 	}

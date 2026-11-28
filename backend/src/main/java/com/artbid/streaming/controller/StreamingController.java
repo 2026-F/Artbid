@@ -1,5 +1,7 @@
 package com.artbid.streaming.controller;
 
+import com.artbid.member.auth.JwtAuthenticationFilter;
+import com.artbid.member.domain.MemberRole;
 import com.artbid.streaming.dto.LivestreamResponse;
 import com.artbid.streaming.dto.StageTokenResponse;
 import com.artbid.streaming.exception.StreamingAuthRequiredException;
@@ -20,18 +22,26 @@ public class StreamingController {
 	private final StreamingService streamingService;
 	private final StreamingTokenService streamingTokenService;
 
-	/** 스테이지를 만들고 방송을 LIVE로 연다. */
+	/** 스테이지를 만들고 방송을 LIVE로 연다. 위탁자 본인이나 관리자만 호출할 수 있다. */
 	@PostMapping("/start")
 	@ResponseStatus(HttpStatus.CREATED)
-	public LivestreamResponse startStream(@PathVariable Long auctionId) {
-		return LivestreamResponse.from(streamingService.startStream(auctionId));
+	public LivestreamResponse startStream(@PathVariable Long auctionId, Principal principal,
+			HttpServletRequest request) {
+		return LivestreamResponse.from(
+				streamingService.startStream(auctionId, requireMemberId(principal), memberRole(request)));
 	}
 
-	/** 스테이지를 삭제하고 방송을 종료한다. 이미 끝난 방송이어도 204를 돌려준다. */
+	/** 스테이지를 삭제하고 방송을 종료한다. 이미 끝난 방송이어도 204를 돌려준다. 위탁자 본인이나 관리자만 호출할 수 있다. */
 	@PostMapping("/end")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void endStream(@PathVariable Long auctionId) {
-		streamingService.endStream(auctionId);
+	public void endStream(@PathVariable Long auctionId, Principal principal, HttpServletRequest request) {
+		streamingService.endStream(auctionId, requireMemberId(principal), memberRole(request));
+	}
+
+	/** 역할은 JWT 필터가 검증한 값만 쓴다. 요청 본문이나 헤더의 역할은 보지 않는다. */
+	private MemberRole memberRole(HttpServletRequest request) {
+		Object role = request.getAttribute(JwtAuthenticationFilter.ROLE_ATTRIBUTE);
+		return role instanceof MemberRole memberRole ? memberRole : null;
 	}
 
 	/** 방송 상태 조회. 비로그인 시청자도 호출한다. */
@@ -61,7 +71,7 @@ public class StreamingController {
 		return streamingTokenService.issueToken(auctionId, memberId(principal), clientIp(request));
 	}
 
-	/** /disconnect, /reconnect는 위탁자 본인 확인이 필요해 비로그인을 허용하지 않는다. */
+	/** /start, /end, /disconnect, /reconnect는 위탁자 본인 확인이 필요해 비로그인을 허용하지 않는다. */
 	private Long requireMemberId(Principal principal) {
 		if (principal != null) {
 			try {
