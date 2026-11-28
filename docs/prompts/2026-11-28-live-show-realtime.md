@@ -1,7 +1,7 @@
 # 라이브 편성 2단계: 참여 토큰, SSE, 채팅, 작품 정보, 수수료 조회
 
 - 작성일: 2026-11-28
-- 관련 이슈 / PR: 이 브랜치 `feature/live/live-show-realtime` PR(base `feature/live/live-show`). 선행 [BE PR #153](https://github.com/2026-F/Artbid/pull/153), 설계 원본 [2026-11-25-live-show-multi-lot.md](2026-11-25-live-show-multi-lot.md). 경매 방송 권한은 별도 [BE PR #156](https://github.com/2026-F/Artbid/pull/156), 기록 [2026-11-28-streaming-start-end-auth.md](2026-11-28-streaming-start-end-auth.md)
+- 관련 이슈 / PR: [BE PR #157](https://github.com/2026-F/Artbid/pull/157) (base `feature/live/live-show`). 선행 [BE PR #153](https://github.com/2026-F/Artbid/pull/153), 설계 원본 [2026-11-25-live-show-multi-lot.md](2026-11-25-live-show-multi-lot.md). 경매 방송 권한은 별도 [BE PR #156](https://github.com/2026-F/Artbid/pull/156), 기록 [2026-11-28-streaming-start-end-auth.md](2026-11-28-streaming-start-end-auth.md)
 
 ## 목적
 
