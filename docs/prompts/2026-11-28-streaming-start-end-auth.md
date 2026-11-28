@@ -1,7 +1,7 @@
 # 경매 단위 방송 시작, 종료 API 권한 검사
 
 - 작성일: 2026-11-28
-- 관련 이슈 / PR: 이 브랜치 `fix/streaming-start-end-auth` PR. 발견 기록 [2026-11-25-live-show-multi-lot.md](2026-11-25-live-show-multi-lot.md) "발견한 기존 문제" (BE PR #153)
+- 관련 이슈 / PR: [BE PR #156](https://github.com/2026-F/Artbid/pull/156). 발견 기록 [2026-11-25-live-show-multi-lot.md](2026-11-25-live-show-multi-lot.md) "발견한 기존 문제" (BE PR #153)
 
 ## 목적
 
