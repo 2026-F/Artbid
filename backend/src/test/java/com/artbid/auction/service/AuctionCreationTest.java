@@ -7,6 +7,7 @@ import com.artbid.auction.domain.Auction;
 import com.artbid.auction.domain.AuctionStatus;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.common.exception.AuctionCreationConflictException;
+import com.artbid.liveshow.repository.LiveShowLotRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -26,6 +27,7 @@ class AuctionCreationTest {
 	private static final LocalDateTime NOW = LocalDateTime.now();
 
 	private AuctionRepository auctions;
+	private LiveShowLotRepository liveShowLots;
 	private AuctionService service;
 	private Artwork artwork;
 
@@ -33,7 +35,8 @@ class AuctionCreationTest {
 	void setUp() {
 		auctions = mock(AuctionRepository.class);
 		ArtworkRepository artworks = mock(ArtworkRepository.class);
-		service = new AuctionService(auctions, artworks, mock(ApplicationEventPublisher.class));
+		liveShowLots = mock(LiveShowLotRepository.class);
+		service = new AuctionService(auctions, artworks, mock(ApplicationEventPublisher.class), liveShowLots);
 		artwork = Artwork.builder().consignorId(1L).artistId(2L).title("무제")
 				.category(ArtworkCategory.PAINTING).startPrice(100_000L).build();
 		ReflectionTestUtils.setField(artwork, "id", 10L);
@@ -93,5 +96,17 @@ class AuctionCreationTest {
 		assertThatThrownBy(() -> service.updateStatus(5L, AuctionStatus.ONGOING))
 				.isInstanceOf(AuctionCreationConflictException.class);
 		verify(closed, never()).overrideStatus(any());
+	}
+
+	@Test
+	void 라이브에_묶인_경매는_관리자가_직접_열_수_없다() {
+		Auction waiting = mock(Auction.class);
+		when(waiting.getStatus()).thenReturn(AuctionStatus.PREVIEW);
+		when(auctions.findByIdForUpdate(5L)).thenReturn(Optional.of(waiting));
+		when(liveShowLots.existsByAuctionId(5L)).thenReturn(true);
+
+		assertThatThrownBy(() -> service.updateStatus(5L, AuctionStatus.ONGOING))
+				.isInstanceOf(AuctionCreationConflictException.class);
+		verify(waiting, never()).overrideStatus(any());
 	}
 }

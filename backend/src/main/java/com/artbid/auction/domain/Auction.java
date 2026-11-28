@@ -151,6 +151,25 @@ public class Auction {
 		this.status = AuctionStatus.CLOSED;
 	}
 
+	/**
+	 * 라이브 진행자가 이 작품 차례를 열 때 쓴다. 지금부터 입찰을 받고 durationMinutes 뒤에 마감한다.
+	 * 마감 30초 이내 입찰 연장과 마감 처리는 일반 경매와 같다.
+	 */
+	public void openForLive(LocalDateTime now, int durationMinutes) {
+		if (status != AuctionStatus.SCHEDULED && status != AuctionStatus.PREVIEW) {
+			throw new IllegalStateException("시작 전 경매만 열 수 있습니다. 현재 상태: " + status);
+		}
+		if (durationMinutes < 1) {
+			throw new IllegalArgumentException("진행 시간은 1분 이상이어야 합니다.");
+		}
+		if (previewStart == null || !previewStart.isBefore(now)) {
+			this.previewStart = now.minusMinutes(1);
+		}
+		this.previewEnd = now;
+		this.auctionEndAt = now.plusMinutes(durationMinutes);
+		this.status = AuctionStatus.ONGOING;
+	}
+
 	// 관리자가 경매 상태를 직접 지정할 때 쓴다.
 	// 지금은 PREVIEW를 시간에 맞춰 자동으로 ONGOING으로 바꿔주는 스케줄러가 없어서,
 	// 관리자가 수동으로 "열어줘야" 실제로 입찰(applyBid)이 가능해진다 — 그 수동 전환용 메서드.

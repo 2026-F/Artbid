@@ -61,6 +61,22 @@ public class IvsStageClient {
         return "artbid-auction-" + auctionId;
     }
 
+    /** 여러 작품을 이어서 진행하는 라이브 편성 하나당 스테이지를 하나 만든다. */
+    public String createShowStage(Long showId) {
+        Stage stage = ivsRealTimeClient.createStage(CreateStageRequest.builder()
+                        .name(showStageName(showId))
+                        .tags(Map.of("service", "artbid", "liveShowId", String.valueOf(showId)))
+                        .build())
+                .stage();
+
+        log.info("[IVS] 스테이지 생성 완료: liveShowId={}, stageArn={}", showId, stage.arn());
+        return stage.arn();
+    }
+
+    static String showStageName(Long showId) {
+        return "artbid-show-" + showId;
+    }
+
     /**
      * 스테이지에 들어갈 참여 토큰을 발급한다.
      * duration은 분 단위로만 받을 수 있고(AWS 쪽 최댓값 180분), 초 단위 이하는 버림된다.

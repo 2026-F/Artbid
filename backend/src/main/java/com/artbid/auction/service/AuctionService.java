@@ -15,6 +15,7 @@ import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.artwork.domain.Artwork;
 import com.artbid.artwork.domain.ArtworkStatus;
 import com.artbid.common.exception.AuctionCreationConflictException;
+import com.artbid.liveshow.repository.LiveShowLotRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,6 +27,7 @@ public class AuctionService {
 	private final AuctionRepository auctionRepository;
 	private final ArtworkRepository artworkRepository;
 	private final ApplicationEventPublisher eventPublisher;
+	private final LiveShowLotRepository liveShowLotRepository;
 
 	public Auction getAuction(Long id) {
 		return auctionRepository.findById(id)
@@ -94,6 +96,11 @@ public class AuctionService {
 		AuctionStatus previousStatus = auction.getStatus();
 		if (previousStatus == AuctionStatus.CLOSED) {
 			throw new AuctionCreationConflictException("마감된 경매는 상태를 바꿀 수 없습니다. 다시 열기를 사용해주세요.");
+		}
+
+		// 라이브에 묶인 경매는 진행자가 차례를 열 때만 시작한다. 미리 입찰을 받지 않는다는 정책이다.
+		if (liveShowLotRepository.existsByAuctionId(auctionId)) {
+			throw new AuctionCreationConflictException("라이브 편성에 들어 있는 경매는 라이브 진행자가 작품 차례를 열어 시작합니다.");
 		}
 
 		auction.overrideStatus(status);
