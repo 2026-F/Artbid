@@ -20,7 +20,9 @@ import java.time.LocalDateTime;
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Table(name = "chat_message", indexes = @Index(name = "idx_chat_message_auction_id", columnList = "auctionId, id"))
+@Table(name = "chat_message", indexes = {
+		@Index(name = "idx_chat_message_auction_id", columnList = "auctionId, id"),
+		@Index(name = "idx_chat_message_show_id", columnList = "showId, id")})
 public class ChatMessage {
 
 	public static final int MAX_CONTENT_LENGTH = 200;
@@ -29,8 +31,12 @@ public class ChatMessage {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
+	/** 경매 채팅이면 그 경매, 라이브 편성 채팅이면 보낸 시점의 현재 작품 경매 */
 	@Column(nullable = false)
 	private Long auctionId;
+
+	/** 라이브 편성(LiveShow) 채팅이면 그 라이브 ID. 경매 단위 채팅이면 null */
+	private Long showId;
 
 	@Column(nullable = false)
 	private Long senderId;
@@ -50,12 +56,27 @@ public class ChatMessage {
 
 	public static ChatMessage of(Long auctionId, Long senderId, String senderName, boolean host, String content,
 			LocalDateTime now) {
+		return create(auctionId, null, senderId, senderName, host, content, now);
+	}
+
+	/** 라이브 편성 채팅. 작품이 바뀌어도 같은 showId로 한 대화가 이어진다. */
+	public static ChatMessage ofShow(Long showId, Long auctionId, Long senderId, String senderName, boolean host,
+			String content, LocalDateTime now) {
+		if (showId == null) {
+			throw new IllegalArgumentException("라이브는 필수입니다.");
+		}
+		return create(auctionId, showId, senderId, senderName, host, content, now);
+	}
+
+	private static ChatMessage create(Long auctionId, Long showId, Long senderId, String senderName, boolean host,
+			String content, LocalDateTime now) {
 		String trimmed = content == null ? "" : content.trim();
 		if (trimmed.isEmpty() || trimmed.length() > MAX_CONTENT_LENGTH) {
 			throw new IllegalArgumentException("채팅 메시지는 1자 이상 " + MAX_CONTENT_LENGTH + "자 이하여야 합니다.");
 		}
 		ChatMessage message = new ChatMessage();
 		message.auctionId = auctionId;
+		message.showId = showId;
 		message.senderId = senderId;
 		message.senderName = senderName;
 		message.host = host;

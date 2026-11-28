@@ -2,6 +2,7 @@ package com.artbid.streaming.controller;
 
 import com.artbid.streaming.exception.InvalidStreamTransitionException;
 import com.artbid.streaming.exception.LivestreamAlreadyLiveException;
+import com.artbid.streaming.exception.LivestreamInLiveShowException;
 import com.artbid.streaming.exception.LivestreamNotFoundException;
 import com.artbid.streaming.exception.StageTokenRateLimitExceededException;
 import com.artbid.streaming.exception.StreamingAccessDeniedException;
@@ -34,6 +35,12 @@ public class StreamingExceptionHandler {
 	public ResponseEntity<ErrorResponse> alreadyLive(LivestreamAlreadyLiveException e) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(new ErrorResponse("LIVESTREAM_ALREADY_LIVE", e.getMessage()));
+	}
+
+	@ExceptionHandler(LivestreamInLiveShowException.class)
+	public ResponseEntity<ErrorResponse> inLiveShow(LivestreamInLiveShowException e) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("LIVESTREAM_IN_LIVE_SHOW", e.getMessage()));
 	}
 
 	@ExceptionHandler(InvalidStreamTransitionException.class)

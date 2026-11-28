@@ -88,8 +88,8 @@ public class LiveChatService {
 	public List<ChatMessageResponse> getMessages(Long auctionId, Long beforeId, Integer size) {
 		Pageable limit = PageRequest.of(0, clampSize(size));
 		List<ChatMessage> newestFirst = beforeId == null
-				? chatMessageRepository.findByAuctionIdOrderByIdDesc(auctionId, limit)
-				: chatMessageRepository.findByAuctionIdAndIdLessThanOrderByIdDesc(auctionId, beforeId, limit);
+				? chatMessageRepository.findByAuctionIdAndShowIdIsNullOrderByIdDesc(auctionId, limit)
+				: chatMessageRepository.findByAuctionIdAndShowIdIsNullAndIdLessThanOrderByIdDesc(auctionId, beforeId, limit);
 
 		List<ChatMessage> oldestFirst = new ArrayList<>(newestFirst);
 		Collections.reverse(oldestFirst);

@@ -8,7 +8,9 @@ import com.artbid.infra.streaming.IvsStageClient;
 import com.artbid.streaming.config.StreamReconnectProperties;
 import com.artbid.streaming.domain.Livestream;
 import com.artbid.streaming.domain.LivestreamStatus;
+import com.artbid.liveshow.repository.LiveShowLotRepository;
 import com.artbid.streaming.exception.LivestreamAlreadyLiveException;
+import com.artbid.streaming.exception.LivestreamInLiveShowException;
 import com.artbid.streaming.exception.LivestreamNotFoundException;
 import com.artbid.streaming.exception.StreamingAccessDeniedException;
 import com.artbid.streaming.repository.LivestreamRepository;
@@ -27,6 +29,7 @@ public class StreamingService {
 	private final ArtworkRepository artworkRepository;
 	private final IvsStageClient ivsStageClient;
 	private final StreamReconnectProperties reconnectProperties;
+	private final LiveShowLotRepository liveShowLotRepository;
 
 	/**
 	 * 경매의 IVS 스테이지를 새로 만들고 ARN을 저장한다.
@@ -40,6 +43,10 @@ public class StreamingService {
 
 		if (livestream.isLive()) {
 			throw new LivestreamAlreadyLiveException(auctionId);
+		}
+		// 라이브 편성에 묶인 경매에 따로 스테이지를 만들면 같은 작품의 방송이 둘로 갈린다.
+		if (liveShowLotRepository.existsByAuctionId(auctionId)) {
+			throw new LivestreamInLiveShowException(auctionId);
 		}
 
 		String stageArn = ivsStageClient.createStage(auctionId);

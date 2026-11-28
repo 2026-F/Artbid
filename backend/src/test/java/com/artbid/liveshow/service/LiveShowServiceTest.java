@@ -1,5 +1,7 @@
 package com.artbid.liveshow.service;
 
+import com.artbid.artist.domain.Artist;
+import com.artbid.artist.repository.ArtistRepository;
 import com.artbid.artwork.domain.Artwork;
 import com.artbid.artwork.domain.ArtworkCategory;
 import com.artbid.artwork.repository.ArtworkRepository;
@@ -15,6 +17,9 @@ import com.artbid.liveshow.domain.LotStatus;
 import com.artbid.liveshow.dto.LiveShowDtos.CreateRequest;
 import com.artbid.liveshow.dto.LiveShowDtos.DetailResponse;
 import com.artbid.liveshow.dto.LiveShowDtos.LotRequest;
+import com.artbid.liveshow.dto.LiveShowDtos.LotResponse;
+import com.artbid.liveshow.dto.LiveShowDtos.ShowStateResponse;
+import com.artbid.liveshow.realtime.LiveShowStateChangedEvent;
 import com.artbid.liveshow.exception.LiveShowAccessDeniedException;
 import com.artbid.liveshow.exception.LiveShowConflictException;
 import com.artbid.liveshow.repository.LiveShowLotRepository;
@@ -56,6 +61,7 @@ class LiveShowServiceTest {
 	private IvsStageClient ivsStageClient;
 	private ApplicationEventPublisher eventPublisher;
 	private PlatformTransactionManager transactionManager;
+	private ArtistRepository artistRepository;
 	private LiveShowService service;
 
 	private final Map<Long, Auction> auctions = new java.util.HashMap<>();
@@ -71,8 +77,12 @@ class LiveShowServiceTest {
 		ivsStageClient = mock(IvsStageClient.class);
 		eventPublisher = mock(ApplicationEventPublisher.class);
 		transactionManager = mock(PlatformTransactionManager.class);
+		artistRepository = mock(ArtistRepository.class);
+		Artist artist = new Artist("김작가", null, null, null, null);
+		ReflectionTestUtils.setField(artist, "id", 2L);
+		when(artistRepository.findAllById(anyCollection())).thenReturn(List.of(artist));
 		service = new LiveShowService(showRepository, lotRepository, auctionRepository, artworkRepository,
-				memberRepository, ivsStageClient, eventPublisher, transactionManager);
+				memberRepository, ivsStageClient, eventPublisher, transactionManager, artistRepository);
 
 		when(auctionRepository.findAllById(anyCollection())).thenAnswer(invocation -> select(auctions, invocation.getArgument(0)));
 		when(artworkRepository.findAllById(anyCollection())).thenAnswer(invocation -> select(artworks, invocation.getArgument(0)));
@@ -102,7 +112,7 @@ class LiveShowServiceTest {
 	private Auction auction(Long auctionId, Long consignorId) {
 		Long artworkId = auctionId * 10;
 		Artwork artwork = Artwork.builder().consignorId(consignorId).artistId(2L).title("작품" + auctionId)
-				.category(ArtworkCategory.PAINTING).startPrice(100_000L).build();
+				.category(ArtworkCategory.PAINTING).startPrice(100_000L).productionYear(2024).build();
 		ReflectionTestUtils.setField(artwork, "id", artworkId);
 		artworks.put(artworkId, artwork);
 
@@ -413,5 +423,127 @@ class LiveShowServiceTest {
 
 		assertThat(response.status()).isEqualTo(LiveShowStatus.ENDED);
 		assertThat(show.getStatus()).isEqualTo(LiveShowStatus.ENDED);
+		// 삭제에 실패했으니 stageArn을 남겨 정리 스케줄러가 다시 시도하게 한다.
+		verify(showRepository, never()).clearStageArn(any(), any());
+	}
+
+	// ---- 남은 스테이지 정리 ----
+
+	@Test
+	void 종료하며_스테이지를_지우면_stageArn을_비운다() {
+		liveShow(LiveShowStatus.LIVE);
+		lots();
+
+		service.end(SHOW_ID, HOST_ID);
+
+		verify(showRepository).clearStageArn(SHOW_ID, "arn:stage");
+	}
+
+	@Test
+	void 종료_때_못_지운_스테이지는_다음_정리_주기에_지운다() {
+		LiveShow show = liveShow(LiveShowStatus.LIVE);
+		lots();
+		doThrow(new RuntimeException("aws down")).doNothing().when(ivsStageClient).deleteStageIfExists("arn:stage");
+		service.end(SHOW_ID, HOST_ID);
+		when(showRepository.findTop50ByStatusAndStageArnIsNotNullOrderByIdAsc(LiveShowStatus.ENDED))
+				.thenReturn(List.of(show));
+
+		int cleaned = service.cleanUpEndedStages();
+
+		assertThat(cleaned).isEqualTo(1);
+		verify(ivsStageClient, times(2)).deleteStageIfExists("arn:stage");
+		verify(showRepository).clearStageArn(SHOW_ID, "arn:stage");
+	}
+
+	@Test
+	void 정리_중_삭제가_또_실패하면_stageArn을_남기고_다음_라이브를_계속_정리한다() {
+		LiveShow failing = LiveShow.create(HOST_ID, "A", null, null, LocalDateTime.now());
+		ReflectionTestUtils.setField(failing, "id", 7L);
+		ReflectionTestUtils.setField(failing, "stageArn", "arn:a");
+		LiveShow ok = LiveShow.create(HOST_ID, "B", null, null, LocalDateTime.now());
+		ReflectionTestUtils.setField(ok, "id", 8L);
+		ReflectionTestUtils.setField(ok, "stageArn", "arn:b");
+		when(showRepository.findTop50ByStatusAndStageArnIsNotNullOrderByIdAsc(LiveShowStatus.ENDED))
+				.thenReturn(List.of(failing, ok));
+		doThrow(new RuntimeException("aws down")).when(ivsStageClient).deleteStageIfExists("arn:a");
+
+		assertThat(service.cleanUpEndedStages()).isEqualTo(1);
+
+		verify(showRepository, never()).clearStageArn(7L, "arn:a");
+		verify(showRepository).clearStageArn(8L, "arn:b");
+	}
+
+	// ---- show-state 이벤트 ----
+
+	@Test
+	void 시작_다음_작품_종료마다_라이브_상태_이벤트를_발행한다() {
+		LiveShow show = liveShow(LiveShowStatus.SCHEDULED);
+		auction(1L, HOST_ID);
+		List<LiveShowLot> lots = lots(1L);
+		when(ivsStageClient.createShowStage(SHOW_ID)).thenReturn("arn:stage");
+
+		service.start(SHOW_ID, HOST_ID);
+		service.openNextLot(SHOW_ID, HOST_ID);
+		service.end(SHOW_ID, HOST_ID);
+
+		org.mockito.ArgumentCaptor<Object> captor = org.mockito.ArgumentCaptor.forClass(Object.class);
+		verify(eventPublisher, atLeastOnce()).publishEvent(captor.capture());
+		List<ShowStateResponse> states = captor.getAllValues().stream()
+				.filter(LiveShowStateChangedEvent.class::isInstance)
+				.map(event -> ((LiveShowStateChangedEvent) event).state())
+				.toList();
+		assertThat(states).hasSize(3);
+
+		assertThat(states).extracting(ShowStateResponse::status)
+				.containsExactly(LiveShowStatus.LIVE, LiveShowStatus.LIVE, LiveShowStatus.ENDED);
+		assertThat(states.get(0).currentLot()).isNull();
+		assertThat(states.get(1).currentLotId()).isEqualTo(lots.get(0).getId());
+		assertThat(states.get(1).currentLot().auctionId()).isEqualTo(1L);
+		assertThat(states.get(1).currentLot().status()).isEqualTo(LotStatus.OPEN);
+		assertThat(states.get(2).showId()).isEqualTo(show.getId());
+	}
+
+	@Test
+	void 현재_상태를_조회한다() {
+		LiveShow show = liveShow(LiveShowStatus.LIVE);
+		auction(1L, HOST_ID);
+		lots(1L);
+		service.openNextLot(SHOW_ID, HOST_ID);
+
+		ShowStateResponse state = service.getState(SHOW_ID);
+
+		assertThat(state.status()).isEqualTo(LiveShowStatus.LIVE);
+		assertThat(state.currentLotId()).isEqualTo(show.getCurrentLotId());
+		assertThat(state.currentLot().artworkTitle()).isEqualTo("작품1");
+	}
+
+	// ---- 작품 정보 ----
+
+	@Test
+	void 작품마다_작가명과_제작연도를_한_번에_모아_돌려준다() {
+		liveShow(LiveShowStatus.SCHEDULED);
+		auction(1L, HOST_ID);
+		auction(2L, HOST_ID);
+		lots(1L, 2L);
+
+		DetailResponse response = service.getDetail(SHOW_ID);
+
+		assertThat(response.lots()).extracting(LotResponse::artistName).containsOnly("김작가");
+		assertThat(response.lots()).extracting(LotResponse::productionYear).containsOnly(2024);
+		verify(artistRepository, times(1)).findAllById(anyCollection());
+		verify(artworkRepository, never()).findById(any());
+	}
+
+	@Test
+	void 작가가_없으면_작가명은_null이다() {
+		liveShow(LiveShowStatus.SCHEDULED);
+		auction(1L, HOST_ID);
+		lots(1L);
+		when(artistRepository.findAllById(anyCollection())).thenReturn(List.of());
+
+		DetailResponse response = service.getDetail(SHOW_ID);
+
+		assertThat(response.lots().get(0).artistName()).isNull();
+		assertThat(response.lots().get(0).productionYear()).isEqualTo(2024);
 	}
 }

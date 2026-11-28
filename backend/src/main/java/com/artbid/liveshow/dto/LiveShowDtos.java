@@ -34,7 +34,22 @@ public final class LiveShowDtos {
 			LocalDateTime auctionEndAt,
 			Long artworkId,
 			String artworkTitle,
-			String artworkImageUrl) {
+			String artworkImageUrl,
+			/** 작가가 없으면 null */
+			String artistName,
+			Integer productionYear) {
+	}
+
+	/**
+	 * SSE show-state 이벤트. 구독 직후와 시작, 다음 작품 열기, 종료 때 보낸다.
+	 * currentLot은 지금 진행 중이거나 마지막으로 진행한 작품이고, 아직 하나도 열지 않았으면 null이다.
+	 * 현재가와 남은 시간의 실시간 변화는 currentLot.auctionId의 경매 SSE로 받는다.
+	 */
+	public record ShowStateResponse(
+			Long showId,
+			LiveShowStatus status,
+			Long currentLotId,
+			LotResponse currentLot) {
 	}
 
 	/** GET /api/live-shows/{id}. 작품별 탭에 쓰는 전체 차례 목록을 담는다. */
