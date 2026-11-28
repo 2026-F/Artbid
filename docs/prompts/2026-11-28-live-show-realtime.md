@@ -88,4 +88,4 @@ AI가 결정 두 가지를 물었고 사용자가 모두 추천안을 골랐다.
 | 4 | BE | 경매 단위 방송, 토큰, 채팅 API 제거(작업 목록 P2-8) | FE 전환 병합 |
 
 - 라이브 채팅을 경매 채팅 조회에서 빼는 결정은 담당자 확인이 필요하다
-- PR #156과 이 PR이 `StreamingService.startStream` 근처를 함께 고친다. 나중에 병합하는 쪽에서 충돌을 정리해야 한다
+- PR #156과 함께 병합하면 `StreamingService.java`는 자동 병합되고 `StreamingServiceTest.java`가 충돌한다(`git merge-tree`로 확인). 이 PR의 409 테스트가 `startStream(1L)`을 쓰므로 나중에 병합하는 쪽에서 `startStream(1L, 5L, MemberRole.CONSIGNOR)`로 맞춘다
