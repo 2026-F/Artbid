@@ -206,7 +206,7 @@ class LiveChatServiceTest {
 
 	@Test
 	void 최근_대화를_오래된_것부터_돌려준다() {
-		when(chatMessageRepository.findByAuctionIdOrderByIdDesc(AUCTION_ID, PageRequest.of(0, 50)))
+		when(chatMessageRepository.findByAuctionIdAndShowIdIsNullOrderByIdDesc(AUCTION_ID, PageRequest.of(0, 50)))
 				.thenReturn(List.of(message("나중"), message("먼저")));
 
 		List<ChatMessageResponse> result = liveChatService.getMessages(AUCTION_ID, null, null);
@@ -216,13 +216,13 @@ class LiveChatServiceTest {
 
 	@Test
 	void beforeId가_있으면_그보다_오래된_메시지만_조회한다() {
-		when(chatMessageRepository.findByAuctionIdAndIdLessThanOrderByIdDesc(AUCTION_ID, 30L, PageRequest.of(0, 20)))
+		when(chatMessageRepository.findByAuctionIdAndShowIdIsNullAndIdLessThanOrderByIdDesc(AUCTION_ID, 30L, PageRequest.of(0, 20)))
 				.thenReturn(List.of(message("이전 대화")));
 
 		List<ChatMessageResponse> result = liveChatService.getMessages(AUCTION_ID, 30L, 20);
 
 		assertThat(result).hasSize(1);
-		verify(chatMessageRepository, never()).findByAuctionIdOrderByIdDesc(any(), any());
+		verify(chatMessageRepository, never()).findByAuctionIdAndShowIdIsNullOrderByIdDesc(any(), any());
 	}
 
 	@Test
@@ -230,7 +230,7 @@ class LiveChatServiceTest {
 		liveChatService.getMessages(AUCTION_ID, null, 5000);
 		liveChatService.getMessages(AUCTION_ID, null, -3);
 
-		verify(chatMessageRepository).findByAuctionIdOrderByIdDesc(AUCTION_ID, PageRequest.of(0, 100));
-		verify(chatMessageRepository).findByAuctionIdOrderByIdDesc(AUCTION_ID, PageRequest.of(0, 1));
+		verify(chatMessageRepository).findByAuctionIdAndShowIdIsNullOrderByIdDesc(AUCTION_ID, PageRequest.of(0, 100));
+		verify(chatMessageRepository).findByAuctionIdAndShowIdIsNullOrderByIdDesc(AUCTION_ID, PageRequest.of(0, 1));
 	}
 }

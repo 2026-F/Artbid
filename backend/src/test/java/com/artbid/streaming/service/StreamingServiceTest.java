@@ -6,11 +6,13 @@ import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.domain.Auction;
 import com.artbid.auction.repository.AuctionRepository;
 import com.artbid.infra.streaming.IvsStageClient;
+import com.artbid.liveshow.repository.LiveShowLotRepository;
 import com.artbid.streaming.config.StreamReconnectProperties;
 import com.artbid.streaming.domain.Livestream;
 import com.artbid.streaming.domain.LivestreamStatus;
 import com.artbid.streaming.exception.InvalidStreamTransitionException;
 import com.artbid.streaming.exception.LivestreamAlreadyLiveException;
+import com.artbid.streaming.exception.LivestreamInLiveShowException;
 import com.artbid.streaming.exception.LivestreamNotFoundException;
 import com.artbid.streaming.exception.StreamingAccessDeniedException;
 import com.artbid.streaming.repository.LivestreamRepository;
@@ -36,6 +38,7 @@ class StreamingServiceTest {
 	private IvsStageClient ivsStageClient;
 	private StreamReconnectProperties reconnectProperties;
 	private StreamingService streamingService;
+	private LiveShowLotRepository liveShowLotRepository;
 
 	@BeforeEach
 	void setup() {
@@ -44,8 +47,10 @@ class StreamingServiceTest {
 		artworkRepository = mock(ArtworkRepository.class);
 		ivsStageClient = mock(IvsStageClient.class);
 		reconnectProperties = new StreamReconnectProperties();
+		liveShowLotRepository = mock(LiveShowLotRepository.class);
 		streamingService = new StreamingService(
-				livestreamRepository, auctionRepository, artworkRepository, ivsStageClient, reconnectProperties);
+				livestreamRepository, auctionRepository, artworkRepository, ivsStageClient, reconnectProperties,
+				liveShowLotRepository);
 		when(livestreamRepository.save(any(Livestream.class))).thenAnswer(invocation -> invocation.getArgument(0));
 	}
 
@@ -77,6 +82,17 @@ class StreamingServiceTest {
 		assertThat(result.getStatus()).isEqualTo(LivestreamStatus.LIVE);
 		assertThat(result.getStartedAt()).isNotNull();
 		verify(livestreamRepository).save(result);
+	}
+
+	@Test
+	void 라이브_편성에_들어_있는_경매는_경매_단위로_방송을_시작하지_못한다() {
+		when(livestreamRepository.findByAuctionId(1L)).thenReturn(Optional.empty());
+		when(liveShowLotRepository.existsByAuctionId(1L)).thenReturn(true);
+
+		assertThatThrownBy(() -> streamingService.startStream(1L))
+				.isInstanceOf(LivestreamInLiveShowException.class);
+		verifyNoInteractions(ivsStageClient);
+		verify(livestreamRepository, never()).save(any());
 	}
 
 	@Test

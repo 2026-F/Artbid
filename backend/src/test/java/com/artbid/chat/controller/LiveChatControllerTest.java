@@ -39,7 +39,7 @@ class LiveChatControllerTest {
 	}
 
 	private ChatMessageResponse response(String content) {
-		return new ChatMessageResponse(3L, 1L, 7L, "홍길동", false, content, LocalDateTime.of(2026, 11, 13, 20, 0));
+		return new ChatMessageResponse(3L, 1L, 7L, "홍길동", false, content, LocalDateTime.of(2026, 11, 13, 20, 0), null);
 	}
 
 	@Test

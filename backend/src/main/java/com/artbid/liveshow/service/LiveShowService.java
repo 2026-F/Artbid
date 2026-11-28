@@ -1,5 +1,7 @@
 package com.artbid.liveshow.service;
 
+import com.artbid.artist.domain.Artist;
+import com.artbid.artist.repository.ArtistRepository;
 import com.artbid.artwork.domain.Artwork;
 import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.domain.Auction;
@@ -17,6 +19,8 @@ import com.artbid.liveshow.dto.LiveShowDtos.CreateRequest;
 import com.artbid.liveshow.dto.LiveShowDtos.DetailResponse;
 import com.artbid.liveshow.dto.LiveShowDtos.LotRequest;
 import com.artbid.liveshow.dto.LiveShowDtos.LotResponse;
+import com.artbid.liveshow.dto.LiveShowDtos.ShowStateResponse;
+import com.artbid.liveshow.realtime.LiveShowStateChangedEvent;
 import com.artbid.liveshow.dto.LiveShowDtos.SummaryResponse;
 import com.artbid.liveshow.exception.LiveShowAccessDeniedException;
 import com.artbid.liveshow.exception.LiveShowConflictException;
@@ -62,6 +66,7 @@ public class LiveShowService {
 	private final IvsStageClient ivsStageClient;
 	private final ApplicationEventPublisher eventPublisher;
 	private final PlatformTransactionManager transactionManager;
+	private final ArtistRepository artistRepository;
 
 	@Transactional
 	public DetailResponse create(Long hostId, MemberRole role, CreateRequest request) {
@@ -128,6 +133,13 @@ public class LiveShowService {
 		return toDetail(show, lotRepository.findByShowIdOrderByLotNo(showId));
 	}
 
+	/** SSE 구독 직후 보내는 현재 상태. 재연결한 화면이 놓친 작품 전환을 따라잡게 한다. */
+	@Transactional(readOnly = true)
+	public ShowStateResponse getState(Long showId) {
+		LiveShow show = showRepository.findById(showId).orElseThrow(() -> new LiveShowNotFoundException(showId));
+		return stateOf(show, lotRepository.findByShowIdOrderByLotNo(showId));
+	}
+
 	/** 상태별 라이브 목록. 최근에 만든 라이브가 먼저 온다. */
 	@Transactional(readOnly = true)
 	public List<SummaryResponse> list(LiveShowStatus status) {
@@ -173,7 +185,9 @@ public class LiveShowService {
 				LiveShow show = lockAsHost(showId, memberId);
 				requireScheduled(show);
 				show.start(stageArn, LocalDateTime.now());
-				return toDetail(show, lotRepository.findByShowIdOrderByLotNo(showId));
+				List<LiveShowLot> lots = lotRepository.findByShowIdOrderByLotNo(showId);
+				publishState(show, lots);
+				return toDetail(show, lots);
 			});
 		} catch (RuntimeException e) {
 			deleteStageQuietly(stageArn, showId);
@@ -226,6 +240,7 @@ public class LiveShowService {
 		// 입찰 판정 캐시를 비우고(AuctionBidCacheInvalidator) 경매 화면에 새 상태를 알린다. 커밋 후에 처리된다.
 		eventPublisher.publishEvent(new AuctionLiveChangedEvent(
 				AuctionLiveState.changed(auction, now), AuctionLiveReason.SNAPSHOT, false));
+		publishState(show, lots);
 		return toDetail(show, lots);
 	}
 
@@ -233,7 +248,7 @@ public class LiveShowService {
 	 * 진행자가 방송을 끝낸다. 열지 않은 작품은 편성에서 빼서 다른 라이브에 다시 넣을 수 있게 한다.
 	 * 입찰 중인 작품이 있으면 그 경매는 원래 마감 시각까지 계속 입찰을 받는다.
 	 * 스테이지는 ENDED 커밋 뒤 트랜잭션 밖에서 지운다. 먼저 지우고 롤백되면 스테이지 없는 LIVE 라이브가 남기 때문이다.
-	 * 삭제가 실패해도 라이브는 끝난 상태로 두고 오류 로그를 남긴다.
+	 * 삭제가 실패해도 라이브는 끝난 상태로 두고, stageArn을 남겨 정리 스케줄러가 다시 지우게 한다.
 	 */
 	public DetailResponse end(Long showId, Long memberId) {
 		EndResult result = writeTransaction().execute(status -> {
@@ -248,9 +263,10 @@ public class LiveShowService {
 			lotRepository.deleteAll(waiting);
 
 			List<LiveShowLot> remaining = lots.stream().filter(lot -> lot.getStatus() != LotStatus.WAITING).toList();
+			publishState(show, remaining);
 			return new EndResult(show.getStageArn(), toDetail(show, remaining));
 		});
-		deleteStageQuietly(result.stageArn(), showId);
+		deleteStageAndForget(showId, result.stageArn());
 		return result.detail();
 	}
 
@@ -261,15 +277,44 @@ public class LiveShowService {
 		return new TransactionTemplate(transactionManager);
 	}
 
-	/** 스테이지 삭제 실패가 원래 결과나 예외를 가리지 않게 한다. 남은 스테이지는 로그의 라이브 ID로 찾아 정리한다. */
-	private void deleteStageQuietly(String stageArn, Long showId) {
+	/**
+	 * 끝난 라이브 중 스테이지 삭제에 실패해 stageArn이 남은 것을 다시 지운다. LiveShowStageSweeper가 주기적으로 부른다.
+	 * AWS 호출은 트랜잭션 밖에서 하고, 지운 뒤에만 stageArn을 비워 다음 주기에 다시 시도하지 않게 한다.
+	 * @return 이번에 정리한 라이브 수
+	 */
+	public int cleanUpEndedStages() {
+		int cleaned = 0;
+		for (LiveShow show : showRepository.findTop50ByStatusAndStageArnIsNotNullOrderByIdAsc(LiveShowStatus.ENDED)) {
+			if (deleteStageAndForget(show.getId(), show.getStageArn())) {
+				cleaned++;
+			}
+		}
+		return cleaned;
+	}
+
+	/** 스테이지를 지우고 성공하면 stageArn을 비운다. 실패하면 stageArn을 남겨 정리 스케줄러가 다시 시도한다. */
+	private boolean deleteStageAndForget(Long showId, String stageArn) {
 		if (stageArn == null) {
-			return;
+			return false;
+		}
+		if (!deleteStageQuietly(stageArn, showId)) {
+			return false;
+		}
+		showRepository.clearStageArn(showId, stageArn);
+		return true;
+	}
+
+	/** 스테이지 삭제 실패가 원래 결과나 예외를 가리지 않게 한다. */
+	private boolean deleteStageQuietly(String stageArn, Long showId) {
+		if (stageArn == null) {
+			return true;
 		}
 		try {
 			ivsStageClient.deleteStageIfExists(stageArn);
+			return true;
 		} catch (RuntimeException e) {
-			log.error("[LiveShow] IVS 스테이지 삭제 실패, 수동 정리 필요: liveShowId={}", showId, e);
+			log.error("[LiveShow] IVS 스테이지 삭제 실패, 정리 스케줄러가 다시 시도: liveShowId={}", showId, e);
+			return false;
 		}
 	}
 
@@ -310,10 +355,27 @@ public class LiveShowService {
 				lotResponses);
 	}
 
+	/** 작품 목록에 필요한 경매, 작품, 작가를 각각 한 번씩 모아서 가져온다(작품마다 따로 조회하지 않는다). */
 	private LotLookup lookup(Collection<LiveShowLot> lots) {
 		Map<Long, Auction> auctions = auctionRepository.findAllById(lots.stream().map(LiveShowLot::getAuctionId).toList())
 				.stream().collect(Collectors.toMap(Auction::getId, Function.identity()));
-		return new LotLookup(auctions, artworksOf(auctions.values()));
+		Map<Long, Artwork> artworks = artworksOf(auctions.values());
+		List<Long> artistIds = artworks.values().stream()
+				.map(Artwork::getArtistId).filter(Objects::nonNull).distinct().toList();
+		Map<Long, Artist> artists = artistIds.isEmpty() ? Map.of() : artistRepository.findAllById(artistIds).stream()
+				.collect(Collectors.toMap(Artist::getId, Function.identity()));
+		return new LotLookup(auctions, artworks, artists);
+	}
+
+	private ShowStateResponse stateOf(LiveShow show, List<LiveShowLot> lots) {
+		LiveShowLot current = currentLot(show, lots);
+		LotResponse currentLot = current == null ? null : lookup(List.of(current)).toResponse(current);
+		return new ShowStateResponse(show.getId(), show.getStatus(), show.getCurrentLotId(), currentLot);
+	}
+
+	/** 커밋된 뒤에 show-state SSE로 보낸다(LiveShowSseListener). */
+	private void publishState(LiveShow show, List<LiveShowLot> lots) {
+		eventPublisher.publishEvent(new LiveShowStateChangedEvent(stateOf(show, lots)));
 	}
 
 	private Map<Long, Artwork> artworksOf(Collection<Auction> auctions) {
@@ -330,11 +392,12 @@ public class LiveShowService {
 		return result;
 	}
 
-	private record LotLookup(Map<Long, Auction> auctions, Map<Long, Artwork> artworks) {
+	private record LotLookup(Map<Long, Auction> auctions, Map<Long, Artwork> artworks, Map<Long, Artist> artists) {
 
 		LotResponse toResponse(LiveShowLot lot) {
 			Auction auction = auctions.get(lot.getAuctionId());
 			Artwork artwork = auction == null ? null : artworks.get(auction.getArtworkId());
+			Artist artist = artwork == null || artwork.getArtistId() == null ? null : artists.get(artwork.getArtistId());
 			// 경매가 마감되면 진행자가 다음 작품을 열기 전이라도 마감으로 보여준다.
 			LotStatus status = lot.getStatus() == LotStatus.OPEN && auction != null
 					&& auction.getStatus() == AuctionStatus.CLOSED ? LotStatus.DONE : lot.getStatus();
@@ -347,7 +410,9 @@ public class LiveShowService {
 					auction == null ? null : auction.getAuctionEndAt(),
 					artwork == null ? null : artwork.getId(),
 					artwork == null ? null : artwork.getTitle(),
-					artwork == null ? null : artwork.getImageUrl());
+					artwork == null ? null : artwork.getImageUrl(),
+					artist == null ? null : artist.getName(),
+					artwork == null ? null : artwork.getProductionYear());
 		}
 	}
 }

@@ -4,6 +4,7 @@ import com.artbid.artwork.domain.Artwork;
 import com.artbid.artwork.repository.ArtworkRepository;
 import com.artbid.auction.event.AuctionClosedMessage;
 import com.artbid.auction.repository.AuctionRepository;
+import com.artbid.settlement.domain.FeePolicy;
 import com.artbid.settlement.domain.Settlement;
 import com.artbid.settlement.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
@@ -33,8 +34,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SettlementCreationService {
 
-    private static final double PREMIUM_RATE = 0.10;      // 낙찰가의 10%를 수수료로
-    private static final long SHIPPING_FEE = 30_000L;
     private static final long PAYMENT_DEADLINE_DAYS = 3;
     private static final DateTimeFormatter DEADLINE_FORMAT = DateTimeFormatter.ofPattern("M월 d일 HH:mm");
 
@@ -62,11 +61,11 @@ public class SettlementCreationService {
 
         LocalDateTime closedAt = message.closedAt() != null ? message.closedAt() : LocalDateTime.now();
         long finalPrice = message.finalPrice();
-        long premiumFee = Math.round(finalPrice * PREMIUM_RATE);
+        long premiumFee = FeePolicy.buyerPremiumOf(finalPrice);
 
         Settlement settlement = Settlement.create(
                 auctionId, message.bidderId(), finalPrice,
-                premiumFee, SHIPPING_FEE, closedAt.plusDays(PAYMENT_DEADLINE_DAYS));
+                premiumFee, FeePolicy.SHIPPING_FEE, closedAt.plusDays(PAYMENT_DEADLINE_DAYS));
         // saveAndFlush: INSERT를 지금 바로 날려서, 유니크 제약 위반이 커밋 때가 아니라 여기서 터지게 한다.
         settlementRepository.saveAndFlush(settlement);
 
